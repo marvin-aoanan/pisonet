@@ -1,0 +1,17 @@
+{
+  "name": "piso-shutdown-listener",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "npx electron ."
+  },
+  "dependencies": {
+    "electron": "^26.0.0",
+    "serialport": "^11.0.0",
+    "node-notifier": "^10.0.1",
+    "electron-auto-launch": "^5.0.0"
+  },
+  "devDependencies": {
+    "electron-packager": "^17.1.0"
+  }
+}
