@@ -6,11 +6,140 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>PisoNet Simulation (Software Mode)</h1>
-
-  <div id="units-container">
-    <!-- Multiple unit panels will be injected here -->
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-container">
+    <div class="login-box">
+      <h1>PisoNet Admin Login</h1>
+      <form id="login-form">
+        <input type="password" id="password-input" placeholder="Enter Admin Password" autocomplete="current-password">
+        <button type="submit" class="login-btn">Login</button>
+      </form>
+      <div id="login-error" class="error-msg"></div>
+    </div>
   </div>
+
+  <!-- Main App (hidden until login) -->
+  <div id="main-app" style="display: none;">
+    <div class="header-bar">
+      <h1>PisoNet Management System</h1>
+      <button id="logout-btn" class="logout-btn">Logout</button>
+    </div>
+
+    <nav class="nav-tabs">
+      <button class="nav-btn active" data-view="units">PC Units</button>
+      <button class="nav-btn" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="reports">Reports</button>
+      <button class="nav-btn" data-view="settings">Settings</button>
+    </nav>
+
+  <div id="units-view" class="view-container active">
+    <div id="units-container">
+      <!-- Multiple unit panels will be injected here -->
+    </div>
+  </div>
+
+  <div id="dashboard-view" class="view-container">
+    <div class="dashboard-grid">
+      <div class="dashboard-card">
+        <h2>Total Revenue Today</h2>
+        <div class="stat-value" id="total-revenue-today">₱0</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Total Revenue All Time</h2>
+        <div class="stat-value" id="total-revenue-all">₱0</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Active Units</h2>
+        <div class="stat-value" id="active-units">0/10</div>
+      </div>
+      <div class="dashboard-card">
+        <h2>Total Sessions Today</h2>
+        <div class="stat-value" id="sessions-today">0</div>
+      </div>
+    </div>
+    <div class="per-unit-stats">
+      <h2>Per Unit Revenue</h2>
+      <table id="unit-stats-table">
+        <thead>
+          <tr>
+            <th>Unit</th>
+            <th>Today</th>
+            <th>All Time</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="unit-stats-body">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="reports-view" class="view-container">
+    <div class="reports-section">
+      <h2>Daily Earnings Summary</h2>
+      <div class="date-filter">
+        <label>From: <input type="date" id="date-from"></label>
+        <label>To: <input type="date" id="date-to"></label>
+        <button id="filter-btn" class="action-btn">Filter</button>
+        <button id="export-csv-btn" class="action-btn">Export to CSV</button>
+      </div>
+      <div id="daily-summary-container">
+        <table id="daily-summary-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Revenue</th>
+              <th>Sessions</th>
+            </tr>
+          </thead>
+          <tbody id="daily-summary-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-view" class="view-container">
+    <div class="settings-section">
+      <h2>Network Sync Settings</h2>
+      <div class="settings-card">
+        <h3>Sync Server Connection</h3>
+        <div class="setting-item">
+          <label>Server Address:</label>
+          <input type="text" id="sync-server" placeholder="localhost:8080" value="localhost:8080">
+        </div>
+        <div class="setting-item">
+          <label>WebSocket Port:</label>
+          <input type="text" id="sync-ws-port" placeholder="8081" value="8081">
+        </div>
+        <div class="setting-item">
+          <label>Enable Sync:</label>
+          <input type="checkbox" id="enable-sync">
+          <span id="sync-status" class="status-indicator">Disconnected</span>
+        </div>
+        <button id="save-sync-btn" class="action-btn">Save & Connect</button>
+      </div>
+      
+      <div class="settings-card">
+        <h3>Change Admin Password</h3>
+        <div class="setting-item">
+          <label>Current Password:</label>
+          <input type="password" id="current-password">
+        </div>
+        <div class="setting-item">
+          <label>New Password:</label>
+          <input type="password" id="new-password">
+        </div>
+        <div class="setting-item">
+          <label>Confirm New Password:</label>
+          <input type="password" id="confirm-password">
+        </div>
+        <button id="change-password-btn" class="action-btn">Change Password</button>
+        <div id="password-change-msg" class="status-msg"></div>
+      </div>
+    </div>
+  </div>
+  </div> <!-- End main-app -->
 
   <script src="renderer.js"></script>
 </body>
