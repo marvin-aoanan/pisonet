@@ -1,11 +1,7 @@
-const { SerialPort } = require('serialport');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-
-const COM_PORT = 'COM3'; // Change for Windows testing
-const BAUD_RATE = 9600;
 
 const logsDir = path.join(__dirname, 'logs');
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
@@ -13,38 +9,36 @@ if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
 const logFile = path.join(logsDir, 'relay.log');
 
 function log(message) {
-  fs.appendFileSync(logFile, `${new Date().toISOString()} - ${message}\n`);
+  const entry = `${new Date().toISOString()} - ${message}\n`;
+  fs.appendFileSync(logFile, entry);
   console.log(message);
 }
 
-log("Starting Piso Shutdown Listener...");
+let remainingSeconds = 0;
+let timerInterval = null;
 
-// IMPORTANT: NEW constructor format
-const port = new SerialPort({
-  path: COM_PORT,
-  baudRate: BAUD_RATE,
-  autoOpen: true
-});
+function startTimer(minutes) {
+  remainingSeconds += minutes * 60;
+  log(`Added ${minutes} minute(s). Total time: ${remainingSeconds}s`);
 
-port.on('open', () => {
-  log(`Connected to ${COM_PORT}`);
-});
+  if (!timerInterval) {
+    timerInterval = setInterval(() => {
+      remainingSeconds--;
+      log(`Remaining: ${remainingSeconds}s`);
 
-port.on('data', (data) => {
-  const message = data.toString().trim();
-  log(`Received: ${message}`);
+      if (remainingSeconds <= 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        log("Time expired. Triggering shutdown...");
 
-  if (message === 'ON') {
-    log('Shutdown triggered');
-
-    if (os.platform() === 'win32') {
-      exec('shutdown /s /t 0');
-    } else if (os.platform() === 'darwin') {
-      exec('sudo shutdown -h now');
-    }
+        if (os.platform() === 'win32') {
+          exec('shutdown /s /t 0');
+        } else {
+          console.log("Shutdown simulated (Mac dev mode)");
+        }
+      }
+    }, 1000);
   }
-});
+}
 
-port.on('error', (err) => {
-  log(`Serial error: ${err.message}`);
-});
+module.exports = { startTimer };

@@ -1,0 +1,40 @@
+body {
+  font-family: 'Orbitron', sans-serif;
+  background-color: #111;
+  color: #0f0;
+  text-align: center;
+  padding: 50px;
+}
+
+#timer {
+  font-size: 120px;
+  letter-spacing: 4px;
+  margin: 40px 0;
+  text-shadow: 0 0 10px #0f0, 0 0 20px #0f0, 0 0 30px #0f0;
+}
+
+.coin-btn {
+  font-size: 24px;
+  padding: 15px 30px;
+  margin: 10px;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  transition: transform 0.1s;
+}
+
+.coin-btn:hover {
+  transform: scale(1.05);
+}
+
+.coin1 { background-color: #555; color: #fff; }
+.coin5 { background-color: #0a0; color: #fff; }
+.coin10 { background-color: #00f; color: #fff; }
+
+.unit-panel {
+  display: inline-block;
+  margin: 20px;
+  padding: 20px;
+  border: 2px solid #0f0;
+  border-radius: 12px;
+}
