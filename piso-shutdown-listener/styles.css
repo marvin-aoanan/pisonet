@@ -307,11 +307,56 @@ tr:hover {
   border: 2px solid #0f0;
   border-radius: 12px;
   min-width: 200px;
+  transition: all 0.3s ease;
+}
+
+/* Status Colors */
+.unit-panel.status-active {
+  border-color: #0f0;
+  background: #0a2a0a;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
+}
+
+.unit-panel.status-warning {
+  border-color: #ff8800;
+  background: #2a1a00;
+  box-shadow: 0 0 25px rgba(255, 136, 0, 0.6);
+  animation: warningPulse 1s ease-in-out infinite;
+}
+
+@keyframes warningPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 136, 0, 0.6); }
+  50% { box-shadow: 0 0 35px rgba(255, 136, 0, 0.9); }
+}
+
+.unit-panel.status-idle {
+  border-color: #555;
+  background: #1a1a1a;
+  box-shadow: none;
+}
+
+.unit-panel.status-disconnected {
+  border-color: #f00;
+  background: #2a0a0a;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
 }
 
 .unit-panel h2 {
   margin-top: 0;
   color: #0f0;
+  transition: color 0.3s;
+}
+
+.unit-panel.status-warning h2 {
+  color: #ff8800;
+}
+
+.unit-panel.status-idle h2 {
+  color: #555;
+}
+
+.unit-panel.status-disconnected h2 {
+  color: #f00;
 }
 
 .timer {
@@ -320,12 +365,41 @@ tr:hover {
   margin: 15px 0;
   color: #0f0;
   text-shadow: 0 0 10px #0f0;
+  transition: color 0.3s;
+}
+
+.unit-panel.status-warning .timer {
+  color: #ff8800;
+  text-shadow: 0 0 15px #ff8800;
+}
+
+.unit-panel.status-idle .timer {
+  color: #555;
+  text-shadow: none;
+}
+
+.unit-panel.status-disconnected .timer {
+  color: #f00;
+  text-shadow: 0 0 10px #f00;
 }
 
 .revenue {
   font-size: 18px;
   margin: 10px 0;
   color: #0a0;
+  transition: color 0.3s;
+}
+
+.unit-panel.status-warning .revenue {
+  color: #ff8800;
+}
+
+.unit-panel.status-idle .revenue {
+  color: #555;
+}
+
+.unit-panel.status-disconnected .revenue {
+  color: #f00;
 }
 
 /* Settings */

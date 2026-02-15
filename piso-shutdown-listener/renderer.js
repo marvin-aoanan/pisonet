@@ -217,27 +217,60 @@ window.addEventListener('DOMContentLoaded', async () => {
       revenue: 0,
       intervalId: null,
       timerEl: panel.querySelector(`#timer${i}`),
-      revenueEl: panel.querySelector(`#revenue${i}`)
+      revenueEl: panel.querySelector(`#revenue${i}`),
+      panelEl: panel,
+      status: 'idle' // 'active', 'idle', 'disconnected'
     });
+    
+    // Set initial status
+    updateUnitStatus(units[units.length - 1]);
   }
 
   function startTimer(unit) {
     if (unit.intervalId) clearInterval(unit.intervalId);
+    unit.status = 'active';
+    updateUnitStatus(unit);
+    
     unit.intervalId = setInterval(() => {
       if (unit.totalSeconds <= 0) {
         clearInterval(unit.intervalId);
+        unit.intervalId = null;
         unit.timerEl.textContent = "00:00";
+        unit.status = 'idle';
+        updateUnitStatus(unit);
         saveTimer(unit); // Save when timer reaches 0
         return;
       }
       unit.totalSeconds--;
       unit.timerEl.textContent = formatTime(unit.totalSeconds);
       
+      // Update status to warning if 1 minute or less
+      if (unit.totalSeconds <= 60 && unit.totalSeconds > 0 && unit.status !== 'warning') {
+        unit.status = 'warning';
+        updateUnitStatus(unit);
+      }
+      
       // Save every 5 seconds to reduce writes
       if (unit.totalSeconds % 5 === 0) {
         saveTimer(unit);
       }
     }, 1000);
+  }
+
+  function updateUnitStatus(unit) {
+    // Remove all status classes
+    unit.panelEl.classList.remove('status-active', 'status-idle', 'status-disconnected', 'status-warning');
+    
+    // Add current status class
+    if (unit.status === 'warning') {
+      unit.panelEl.classList.add('status-warning');
+    } else if (unit.status === 'active') {
+      unit.panelEl.classList.add('status-active');
+    } else if (unit.status === 'idle') {
+      unit.panelEl.classList.add('status-idle');
+    } else if (unit.status === 'disconnected') {
+      unit.panelEl.classList.add('status-disconnected');
+    }
   }
 
   function saveTimer(unit) {
