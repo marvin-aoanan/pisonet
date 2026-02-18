@@ -1,7 +1,8 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
-const fs = require('fs');
+const low = require('lowdb');
+const FileSync = require('lowdb/adapters/FileSync');
 const RelayController = require('./relay-control');
 const ShutdownController = require('./shutdown-control');
 
@@ -9,94 +10,72 @@ const ShutdownController = require('./shutdown-control');
 const relayController = new RelayController();
 const shutdownController = new ShutdownController();
 
-// Simple JSON database
-const DB_FILE = 'pisonet-db.json';
-const defaultData = {
+// Database setup with lowdb v3
+const adapter = new FileSync('pisonet-db.json');
+const db = low(adapter);
+
+// Set defaults
+db.defaults({
   units: [],
   coinInserts: [],
   timers: {},
   settings: {}
-};
-
-function readDB() {
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Error reading database:', error);
-  }
-  return { ...defaultData };
-}
-
-function writeDB(data) {
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
-  } catch (error) {
-    console.error('Error writing database:', error);
-  }
-}
+}).write();
 
 function initDatabase() {
-  const db = readDB();
-  
   // Initialize password if not exists
-  if (!db.settings.passwordHash) {
+  if (!db.get('settings.passwordHash').value()) {
     const DEFAULT_PASSWORD = 'admin123';
-    db.settings.passwordHash = crypto.createHash('sha256').update(DEFAULT_PASSWORD).digest('hex');
-    writeDB(db);
+    db.set('settings.passwordHash', crypto.createHash('sha256').update(DEFAULT_PASSWORD).digest('hex'))
+      .write();
     console.log('Default password set to: admin123');
   }
 }
 
 function logCoin(unitId, coinValue) {
-  const db = readDB();
-  db.coinInserts.push({
-    id: Date.now(),
-    unitId,
-    coinValue,
-    insertedAt: new Date().toISOString()
-  });
-  writeDB(db);
+  db.get('coinInserts')
+    .push({
+      id: Date.now(),
+      unitId,
+      coinValue,
+      insertedAt: new Date().toISOString()
+    })
+    .write();
 }
 
 function getRevenueToday() {
-  const db = readDB();
   const today = new Date().toISOString().split('T')[0];
-  return db.coinInserts
+  return db.get('coinInserts')
     .filter(c => c.insertedAt.startsWith(today))
-    .reduce((sum, c) => sum + c.coinValue, 0);
+    .reduce((sum, c) => sum + c.coinValue, 0)
+    .value();
 }
 
 function getRevenueAll() {
-  const db = readDB();
-  return db.coinInserts.reduce((sum, c) => sum + c.coinValue, 0);
+  return db.get('coinInserts')
+    .reduce((sum, c) => sum + c.coinValue, 0)
+    .value();
 }
 
 function getSessionsToday() {
-  const db = readDB();
   const today = new Date().toISOString().split('T')[0];
-  return db.coinInserts.filter(c => c.insertedAt.startsWith(today)).length;
+  return db.get('coinInserts')
+    .filter(c => c.insertedAt.startsWith(today))
+    .size()
+    .value();
 }
 
 let mainWindow;
 const isDev = process.env.NODE_ENV === 'development';
 
 function createWindow() {
-  // Disable extensions in production
-  if (!isDev) {
-    app.commandLine.appendSwitch('disable-extensions');
-  }
-
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false,
-      devTools: isDev // Disable DevTools in production to prevent extension warnings
+      nodeIntegration: false
     }
   });
 
@@ -107,17 +86,6 @@ function createWindow() {
   } else {
     // Production mode: load from built Next.js app
     mainWindow.loadFile(path.join(__dirname, 'renderer', 'out', 'index.html'));
-    
-    // Filter out extension and dev tool console warnings
-    mainWindow.webContents.on('console-message', (event) => {
-      const message = event.message || '';
-      // Suppress common extension/devtools warnings
-      if (message.includes('Could not establish connection') ||
-          message.includes('Injected script') ||
-          message.includes('electronAPI not available')) {
-        event.preventDefault();
-      }
-    });
   }
   
   // Connect to relay on startup
@@ -127,10 +95,10 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  initDatabase();
-  createWindow();
-});
+app.whenReady().then(async () => {
+  await initDatabase();
+  createWindow();() => {
+ 
 
 app.on('window-all-closed', () => {
   relayController.disconnect();
@@ -148,9 +116,9 @@ ipcMain.on('simulate-coin', (event, unitId, coinValue) => {
 });
 
 ipcMain.handle('get-timers', () => {
-  const db = readDB();
   // Convert timers object to array format
-  return Object.entries(db.timers).map(([unitId, data]) => ({
+  const timers = db.get('timers').value();
+  return Object.entries(timers).map(([unitId, data]) => ({
     unit_id: parseInt(unitId),
     remaining_seconds: data.remainingSeconds || 0,
     total_revenue: data.totalRevenue || 0,
@@ -159,13 +127,11 @@ ipcMain.handle('get-timers', () => {
 });
 
 ipcMain.handle('update-timer', (event, unitId, remainingSeconds, totalRevenue) => {
-  const db = readDB();
-  db.timers[unitId] = {
+  db.set(`timers.${unitId}`, {
     remainingSeconds,
     totalRevenue,
     lastUpdated: new Date().toISOString()
-  };
-  writeDB(db);
+  }).write();
 });
 
 ipcMain.handle('get-revenue-today', () => {
@@ -207,40 +173,13 @@ ipcMain.handle('shutdown-pc', async (event, unitId) => {
   }
 });
 
-ipcMain.handle('login', (event, password) => {
-  const db = readDB();
-  const storedHash = db.settings.passwordHash;
+ipcMain.handle('login', async (event, password) => {
+  await db.read();
+  const storedHash = db.data.settings.passwordHash;
   
   if (!storedHash) return { success: false };
-  
-  const inputHash = crypto.createHash('sha256').update(password).digest('hex');
-  return { success: inputHash === storedHash };
-});
-
-ipcMain.handle('change-password', (event, oldPassword, newPassword) => {
-  const db = readDB();
-  const storedHash = db.settings.passwordHash;
-  
-  if (!storedHash) return { success: false };
-  
-  const oldHash = crypto.createHash('sha256').update(oldPassword).digest('hex');
-  if (oldHash !== storedHash) {
-    return { success: false, error: 'Incorrect current password' };
-  }
-  
-  const newHash = crypto.createHash('sha256').update(newPassword).digest('hex');
-  db.settings.passwordHash = newHash;
-  writeDB(db);
-  
-  return { success: true };
-});
-
-ipcMain.handle('get-all-transactions', (event, dateFrom, dateTo) => {
-  const db = readDB();
-  return db.coinInserts.filter(t => {
-    const date = t.insertedAt.split('T')[0];
-    return date >= dateFrom && date <= dateTo;
-  });
+  (event, password) => {
+  const storedHash = db.get('settings.passwordHash').value()
 });
 
 ipcMain.handle('configure-pc', async (event, unitId, config) => {

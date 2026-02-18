@@ -1,0 +1,114 @@
+{
+  "units": [],
+  "coinInserts": [
+    {
+      "id": 1771378061885,
+      "unitId": 6,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061886,
+      "unitId": 7,
+      "coinValue": 10,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061887,
+      "unitId": 7,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061888,
+      "unitId": 9,
+      "coinValue": 10,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061889,
+      "unitId": 1,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061890,
+      "unitId": 5,
+      "coinValue": 10,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061891,
+      "unitId": 7,
+      "coinValue": 5,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061892,
+      "unitId": 4,
+      "coinValue": 5,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061893,
+      "unitId": 5,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378061894,
+      "unitId": 7,
+      "coinValue": 5,
+      "insertedAt": "2026-02-18T01:27:41.876Z"
+    },
+    {
+      "id": 1771378684093,
+      "unitId": 3,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:38:04.093Z"
+    },
+    {
+      "id": 1771378816009,
+      "unitId": 3,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:40:16.009Z"
+    },
+    {
+      "id": 1771378819959,
+      "unitId": 5,
+      "coinValue": 5,
+      "insertedAt": "2026-02-18T01:40:19.959Z"
+    },
+    {
+      "id": 1771379094098,
+      "unitId": 1,
+      "coinValue": 1,
+      "insertedAt": "2026-02-18T01:44:54.098Z"
+    }
+  ],
+  "timers": {
+    "1": {
+      "remainingSeconds": 0,
+      "totalRevenue": 16,
+      "lastUpdated": "2026-02-18T01:45:54.924Z"
+    },
+    "2": {
+      "remainingSeconds": 50,
+      "totalRevenue": 25,
+      "lastUpdated": "2026-02-18T01:58:49.016Z"
+    },
+    "3": {
+      "remainingSeconds": 0,
+      "totalRevenue": 1,
+      "lastUpdated": "2026-02-18T01:41:53.115Z"
+    },
+    "5": {
+      "remainingSeconds": 0,
+      "totalRevenue": 5,
+      "lastUpdated": "2026-02-18T01:47:12.938Z"
+    }
+  },
+  "settings": {
+    "passwordHash": "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+  }
+}

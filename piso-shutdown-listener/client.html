@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PisoNet Client Timer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+    }
+
+    .pc-number {
+      font-size: 48px;
+      color: #4CAF50;
+      margin-bottom: 20px;
+      font-weight: bold;
+      text-shadow: 0 0 20px rgba(76, 175, 80, 0.5);
+    }
+
+    .timer {
+      font-size: 120px;
+      font-weight: bold;
+      color: #0f0;
+      text-shadow: 0 0 30px #0f0;
+      margin: 40px 0;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 10px;
+    }
+
+    .status {
+      font-size: 24px;
+      color: #888;
+      margin-bottom: 30px;
+    }
+
+    .warning {
+      animation: pulse 1s infinite;
+      color: #ff8800;
+      text-shadow: 0 0 20px #ff8800;
+    }
+
+    .warning .timer {
+      color: #ff8800;
+      text-shadow: 0 0 30px #ff8800;
+    }
+
+    .expired .timer {
+      color: #f00;
+      text-shadow: 0 0 30px #f00;
+    }
+
+    .message {
+      font-size: 28px;
+      color: #0f0;
+      margin-top: 30px;
+      padding: 20px;
+      background: rgba(0, 255, 0, 0.1);
+      border-radius: 10px;
+      border: 2px solid #0f0;
+    }
+
+    .warning-message {
+      font-size: 32px;
+      color: #ff8800;
+      background: rgba(255, 136, 0, 0.2);
+      border: 3px solid #ff8800;
+      padding: 30px;
+      border-radius: 15px;
+      animation: pulse 1s infinite;
+    }
+
+    .connection-status {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      background: rgba(255, 0, 0, 0.2);
+      border: 2px solid #f00;
+      color: #f00;
+    }
+
+    .connection-status.connected {
+      background: rgba(0, 255, 0, 0.2);
+      border-color: #0f0;
+      color: #0f0;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .info {
+      font-size: 16px;
+      color: #666;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <div class="connection-status" id="connectionStatus">Disconnected</div>
+  
+  <div class="container" id="container">
+    <div class="pc-number" id="pcNumber">PC #</div>
+    <div class="timer" id="timer">--:--</div>
+    <div class="status" id="status">Waiting for connection...</div>
+    <div class="message" id="message" style="display: none;"></div>
+    <div class="info">Insert coins to add time</div>
+  </div>
+
+  <script>
+    // Get unit ID from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const unitId = parseInt(urlParams.get('unit')) || 1;
+    
+    // Get server address from URL or use default
+    const serverHost = urlParams.get('server') || window.location.hostname;
+    const wsPort = urlParams.get('wsPort') || '8081';
+
+    document.getElementById('pcNumber').textContent = `PC ${unitId}`;
+
+    let ws = null;
+    let reconnectTimeout = null;
+    let remainingSeconds = 0;
+    let localInterval = null;
+
+    const timerEl = document.getElementById('timer');
+    const statusEl = document.getElementById('status');
+    const messageEl = document.getElementById('message');
+    const containerEl = document.getElementById('container');
+    const connectionStatusEl = document.getElementById('connectionStatus');
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const s = (seconds % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    function updateDisplay() {
+      timerEl.textContent = formatTime(remainingSeconds);
+
+      // Update status and styling
+      containerEl.classList.remove('warning', 'expired');
+      messageEl.style.display = 'none';
+
+      if (remainingSeconds <= 0) {
+        statusEl.textContent = 'Time Expired';
+        containerEl.classList.add('expired');
+        statusEl.style.color = '#f00';
+      } else if (remainingSeconds <= 10) {
+        statusEl.textContent = '⚠️ SHUTTING DOWN SOON!';
+        containerEl.classList.add('warning');
+        messageEl.className = 'warning-message';
+        messageEl.textContent = 'SAVE YOUR WORK NOW!';
+        messageEl.style.display = 'block';
+      } else if (remainingSeconds <= 60) {
+        statusEl.textContent = '⚠️ Warning: Low Time';
+        containerEl.classList.add('warning');
+        messageEl.className = 'message warning-message';
+        messageEl.textContent = 'Please add more coins';
+        messageEl.style.display = 'block';
+      } else {
+        statusEl.textContent = 'Active Session';
+        statusEl.style.color = '#0f0';
+      }
+    }
+
+    function startLocalCountdown() {
+      if (localInterval) clearInterval(localInterval);
+      
+      localInterval = setInterval(() => {
+        if (remainingSeconds > 0) {
+          remainingSeconds--;
+          updateDisplay();
+        }
+      }, 1000);
+    }
+
+    function connectWebSocket() {
+      const wsUrl = `ws://${serverHost}:${wsPort}`;
+      console.log('Connecting to:', wsUrl);
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('Connected to sync server');
+        statusEl.textContent = 'Connected';
+        connectionStatusEl.textContent = 'Connected';
+        connectionStatusEl.classList.add('connected');
+        
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          
+          if (message.type === 'initial_state') {
+            // Load initial state
+            const myUnit = message.data.find(u => u.unit_id === unitId);
+            if (myUnit && myUnit.remaining_seconds > 0) {
+              remainingSeconds = myUnit.remaining_seconds;
+              updateDisplay();
+              startLocalCountdown();
+            }
+          } else if (message.type === 'timer_update') {
+            // Update from server
+            if (message.data.unit_id === unitId) {
+              remainingSeconds = message.data.remaining_seconds;
+              updateDisplay();
+              
+              if (remainingSeconds > 0 && !localInterval) {
+                startLocalCountdown();
+              }
+            }
+          } else if (message.type === 'coin_insert') {
+            // Coin inserted
+            if (message.data.unit_id === unitId) {
+              const addedMinutes = message.data.coin_value;
+              remainingSeconds += addedMinutes * 60;
+              updateDisplay();
+              
+              // Show temporary message
+              messageEl.className = 'message';
+              messageEl.textContent = `+${addedMinutes} minute${addedMinutes > 1 ? 's' : ''} added!`;
+              messageEl.style.display = 'block';
+              
+              setTimeout(() => {
+                if (remainingSeconds > 60) {
+                  messageEl.style.display = 'none';
+                }
+              }, 3000);
+              
+              if (!localInterval) {
+                startLocalCountdown();
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        connectionStatusEl.textContent = 'Connection Error';
+        connectionStatusEl.classList.remove('connected');
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from sync server');
+        statusEl.textContent = 'Disconnected - Reconnecting...';
+        connectionStatusEl.textContent = 'Reconnecting...';
+        connectionStatusEl.classList.remove('connected');
+        
+        // Attempt to reconnect
+        if (!reconnectTimeout) {
+          reconnectTimeout = setTimeout(connectWebSocket, 3000);
+        }
+      };
+    }
+
+    // Start connection
+    connectWebSocket();
+
+    // Prevent accidental page close
+    window.addEventListener('beforeunload', (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    });
+  </script>
+</body>
+</html>

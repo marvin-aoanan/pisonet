@@ -20,5 +20,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Auth APIs
   verifyPassword: (password) => ipcRenderer.invoke('verify-password', password),
-  changePassword: (oldPassword, newPassword) => ipcRenderer.invoke('change-password', oldPassword, newPassword)
+  changePassword: (oldPassword, newPassword) => ipcRenderer.invoke('change-password', oldPassword, newPassword),
+  
+  // Reports APIs
+  getAllTransactions: (dateFrom, dateTo) => ipcRenderer.invoke('get-all-transactions', dateFrom, dateTo),
+  
+  // Relay APIs
+  relayOn: (unitId) => ipcRenderer.invoke('relay-on', unitId),
+  relayOff: (unitId) => ipcRenderer.invoke('relay-off', unitId),
+  relayStatus: () => ipcRenderer.invoke('relay-status'),
+  
+  // Shutdown APIs
+  shutdownPC: (unitId) => ipcRenderer.invoke('shutdown-pc', unitId),
+  cancelShutdown: (unitId) => ipcRenderer.invoke('cancel-shutdown', unitId),
+  configurePC: (unitId, config) => ipcRenderer.invoke('configure-pc', unitId, config)
 });

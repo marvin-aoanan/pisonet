@@ -208,6 +208,30 @@ window.addEventListener('DOMContentLoaded', async () => {
       btn.addEventListener('click', () => addTime(i, c));
       panel.appendChild(btn);
     });
+    
+    // Add relay control buttons
+    const relayControls = document.createElement('div');
+    relayControls.classList.add('relay-controls');
+    
+    const powerOnBtn = document.createElement('button');
+    powerOnBtn.classList.add('relay-btn', 'power-on');
+    powerOnBtn.textContent = '⚡ Power ON';
+    powerOnBtn.addEventListener('click', () => manualRelayOn(i));
+    
+    const shutdownBtn = document.createElement('button');
+    shutdownBtn.classList.add('relay-btn', 'shutdown');
+    shutdownBtn.textContent = '🖥️ Shutdown';
+    shutdownBtn.addEventListener('click', () => manualShutdown(i));
+    
+    const powerOffBtn = document.createElement('button');
+    powerOffBtn.classList.add('relay-btn', 'power-off');
+    powerOffBtn.textContent = '🔌 Power OFF';
+    powerOffBtn.addEventListener('click', () => manualRelayOff(i));
+    
+    relayControls.appendChild(powerOnBtn);
+    relayControls.appendChild(shutdownBtn);
+    relayControls.appendChild(powerOffBtn);
+    panel.appendChild(relayControls);
 
     unitsContainer.appendChild(panel);
 
@@ -219,7 +243,8 @@ window.addEventListener('DOMContentLoaded', async () => {
       timerEl: panel.querySelector(`#timer${i}`),
       revenueEl: panel.querySelector(`#revenue${i}`),
       panelEl: panel,
-      status: 'idle' // 'active', 'idle', 'disconnected'
+      status: 'idle', // 'active', 'idle', 'disconnected'
+      warningShown: false // Track if 10-second warning has been shown
     });
     
     // Set initial status
@@ -231,6 +256,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     unit.status = 'active';
     updateUnitStatus(unit);
     
+    // Turn ON relay when timer starts
+    if (window.electronAPI && window.electronAPI.relayOn) {
+      window.electronAPI.relayOn(unit.id).then(result => {
+        if (result.success) {
+          console.log(`Relay ON for PC ${unit.id}`);
+        }
+      }).catch(err => console.error('Relay ON error:', err));
+    }
+    
     unit.intervalId = setInterval(() => {
       if (unit.totalSeconds <= 0) {
         clearInterval(unit.intervalId);
@@ -239,7 +273,38 @@ window.addEventListener('DOMContentLoaded', async () => {
         unit.status = 'idle';
         updateUnitStatus(unit);
         saveTimer(unit); // Save when timer reaches 0
+        
+        // Backup power cut - Turn OFF relay if PC hasn't shut down gracefully
+        // (This gives the PC 10 seconds to shutdown via software before hard power cut)
+        if (window.electronAPI && window.electronAPI.relayOff) {
+          window.electronAPI.relayOff(unit.id).then(result => {
+            if (result.success) {
+              console.log(`PC ${unit.id} - Backup power cut activated (PC should have shut down gracefully already)`);
+            }
+          }).catch(err => console.error('Relay OFF error:', err));
+        }
+        
         return;
+      }
+      
+      // Grace period warning at 10 seconds
+      if (unit.totalSeconds === 10 && !unit.warningShown) {
+        unit.warningShown = true;
+        unit.status = 'warning';
+        updateUnitStatus(unit);
+        showShutdownWarning(unit.id);
+        playWarningSound();
+        
+        // Send graceful shutdown command at 10 seconds
+        if (window.electronAPI && window.electronAPI.shutdownPC) {
+          window.electronAPI.shutdownPC(unit.id).then(result => {
+            if (result.success) {
+              console.log(`PC ${unit.id} - Graceful shutdown initiated`);
+            } else {
+              console.log(`PC ${unit.id} - Shutdown command failed, will use relay as backup`);
+            }
+          }).catch(err => console.error('Shutdown command error:', err));
+        }
       }
       unit.totalSeconds--;
       unit.timerEl.textContent = formatTime(unit.totalSeconds);
@@ -272,6 +337,127 @@ window.addEventListener('DOMContentLoaded', async () => {
       unit.panelEl.classList.add('status-disconnected');
     }
   }
+  
+  function showShutdownWarning(unitId) {
+    // Create warning overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'warning-overlay';
+    overlay.innerHTML = `
+      <div class="warning-box">
+        <h2>⚠️ PC ${unitId} WARNING ⚠️</h2>
+        <p class="warning-text">Your time will expire in 10 SECONDS!</p>
+        <p class="warning-subtext">Please save your work immediately.</p>
+        <p class="warning-subtext">Add more coins to continue.</p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      overlay.remove();
+    }, 5000);
+  }
+  
+  function playWarningSound() {
+    // Create audio context for beep sound
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Play 3 beeps
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800; // 800 Hz beep
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      }, i * 400); // 400ms between beeps
+    }
+  }
+
+  // Manual relay control functions
+  async function manualRelayOn(unitId) {
+    try {
+      const result = await window.electronAPI.relayOn(unitId);
+      if (result.success) {
+        console.log(`Manual Power ON: PC ${unitId}`);
+        alert(`PC ${unitId} powered ON`);
+      } else {
+        alert(`Failed to power ON PC ${unitId}`);
+      }
+    } catch (error) {
+      console.error('Manual relay ON error:', error);
+      alert('Error controlling relay');
+    }
+  }
+
+  async function manualShutdown(unitId) {
+    const confirm = window.confirm(`Send graceful shutdown command to PC ${unitId}?`);
+    if (!confirm) return;
+    
+    try {
+      const result = await window.electronAPI.shutdownPC(unitId);
+      if (result.success) {
+        console.log(`Manual Shutdown: PC ${unitId}`);
+        alert(`Shutdown command sent to PC ${unitId}. PC will shut down in 10 seconds.`);
+        
+        // Stop timer if running
+        const unit = units.find(u => u.id === unitId);
+        if (unit && unit.intervalId) {
+          clearInterval(unit.intervalId);
+          unit.intervalId = null;
+          unit.totalSeconds = 0;
+          unit.timerEl.textContent = "00:00";
+          unit.status = 'idle';
+          updateUnitStatus(unit);
+          saveTimer(unit);
+        }
+      } else {
+        alert(`Failed to send shutdown command: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Manual shutdown error:', error);
+      alert('Error sending shutdown command');
+    }
+  }
+
+  async function manualRelayOff(unitId) {
+    const confirm = window.confirm(`Are you sure you want to power OFF PC ${unitId}?`);
+    if (!confirm) return;
+    
+    try {
+      const result = await window.electronAPI.relayOff(unitId);
+      if (result.success) {
+        console.log(`Manual Power OFF: PC ${unitId}`);
+        alert(`PC ${unitId} powered OFF`);
+        
+        // Stop timer if running
+        const unit = units.find(u => u.id === unitId);
+        if (unit && unit.intervalId) {
+          clearInterval(unit.intervalId);
+          unit.intervalId = null;
+          unit.totalSeconds = 0;
+          unit.timerEl.textContent = "00:00";
+          unit.status = 'idle';
+          updateUnitStatus(unit);
+          saveTimer(unit);
+        }
+      } else {
+        alert(`Failed to power OFF PC ${unitId}`);
+      }
+    } catch (error) {
+      console.error('Manual relay OFF error:', error);
+      alert('Error controlling relay');
+    }
+  }
 
   function saveTimer(unit) {
     if (window.electronAPI && window.electronAPI.updateTimer) {
@@ -285,8 +471,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     const unit = units.find(u => u.id === unitId);
     unit.totalSeconds += minutes * 60;
     unit.revenue += minutes;
+    unit.warningShown = false; // Reset warning flag
     unit.timerEl.textContent = formatTime(unit.totalSeconds);
     unit.revenueEl.textContent = `Revenue: ₱${unit.revenue}`;
+    
+    // If adding time brings it above warning threshold, set status back to active
+    if (unit.totalSeconds > 60) {
+      unit.status = 'active';
+      updateUnitStatus(unit);
+    }
+    
     startTimer(unit);
 
     // Save immediately when coin is inserted
@@ -551,6 +745,95 @@ window.addEventListener('DOMContentLoaded', async () => {
       } catch (error) {
         msgEl.textContent = 'Failed to change password';
         msgEl.className = 'status-msg error';
+      }
+    });
+  }
+  
+  // PC Configuration
+  const savePcConfigBtn = document.getElementById('save-pc-config-btn');
+  const autoConfigBtn = document.getElementById('auto-config-btn');
+  const pcMethodSelect = document.getElementById('pc-method');
+  const pcUsernameItem = document.getElementById('pc-username-item');
+  const pcPasswordItem = document.getElementById('pc-password-item');
+  
+  // Show/hide username and password fields based on method
+  if (pcMethodSelect) {
+    pcMethodSelect.addEventListener('change', () => {
+      const method = pcMethodSelect.value;
+      if (method === 'local') {
+        pcUsernameItem.style.display = 'none';
+        pcPasswordItem.style.display = 'none';
+      } else if (method === 'windows-remote') {
+        pcUsernameItem.style.display = 'none';
+        pcPasswordItem.style.display = 'none';
+      } else if (method === 'ssh' || method === 'windows-ssh') {
+        pcUsernameItem.style.display = 'block';
+        pcPasswordItem.style.display = 'block';
+      }
+    });
+  }
+  
+  if (savePcConfigBtn) {
+    savePcConfigBtn.addEventListener('click', async () => {
+      const msgEl = document.getElementById('pc-config-msg');
+      const unitId = parseInt(document.getElementById('pc-config-select').value);
+      const ip = document.getElementById('pc-ip').value;
+      const method = document.getElementById('pc-method').value;
+      const username = document.getElementById('pc-username').value;
+      const password = document.getElementById('pc-password').value;
+      
+      if (!ip && method !== 'local') {
+        msgEl.textContent = 'Please enter IP address';
+        msgEl.className = 'status-msg error';
+        return;
+      }
+      
+      try {
+        const config = { ip, method, username, password };
+        const result = await window.electronAPI.configurePC(unitId, config);
+        
+        if (result.success) {
+          msgEl.textContent = `PC ${unitId} configured successfully!`;
+          msgEl.className = 'status-msg success';
+        } else {
+          msgEl.textContent = `Failed: ${result.error}`;
+          msgEl.className = 'status-msg error';
+        }
+      } catch (error) {
+        msgEl.textContent = 'Error configuring PC';
+        msgEl.className = 'status-msg error';
+        console.error('PC config error:', error);
+      }
+    });
+  }
+  
+  if (autoConfigBtn) {
+    autoConfigBtn.addEventListener('click', async () => {
+      const msgEl = document.getElementById('pc-config-msg');
+      
+      if (!confirm('Auto-configure all 10 PCs with IPs 192.168.1.101-110 using Windows Remote method?')) {
+        return;
+      }
+      
+      try {
+        let successCount = 0;
+        for (let i = 1; i <= 10; i++) {
+          const config = {
+            ip: `192.168.1.${100 + i}`,
+            method: 'windows-remote',
+            username: 'admin',
+            password: ''
+          };
+          const result = await window.electronAPI.configurePC(i, config);
+          if (result.success) successCount++;
+        }
+        
+        msgEl.textContent = `Auto-configured ${successCount}/10 PCs successfully!`;
+        msgEl.className = 'status-msg success';
+      } catch (error) {
+        msgEl.textContent = 'Error in auto-configuration';
+        msgEl.className = 'status-msg error';
+        console.error('Auto-config error:', error);
       }
     });
   }

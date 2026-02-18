@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const express = require('express');
 const Database = require('better-sqlite3');
+const path = require('path');
 
 const app = express();
 const PORT = 8080;
@@ -30,6 +31,36 @@ db.prepare(`
 
 // REST API
 app.use(express.json());
+
+// Serve client display page
+app.get('/client.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client.html'));
+});
+
+// Serve root redirect to help page
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>PisoNet Sync Server</title></head>
+      <body style="font-family: Arial; padding: 40px; background: #1a1a2e; color: #fff;">
+        <h1>PisoNet Sync Server Running</h1>
+        <p>To display timer on client PCs, open:</p>
+        <code style="background: #333; padding: 10px; display: block; margin: 20px 0;">
+          http://${req.hostname}:${PORT}/client.html?unit=X
+        </code>
+        <p>Replace X with the PC unit number (1-10)</p>
+        <hr style="margin: 30px 0; border-color: #333;">
+        <h3>API Endpoints:</h3>
+        <ul>
+          <li>GET /api/timers - Get all timer states</li>
+          <li>POST /api/timer/update - Update timer state</li>
+          <li>POST /api/coin/insert - Log coin insert</li>
+        </ul>
+        <p>WebSocket: ws://${req.hostname}:${WS_PORT}</p>
+      </body>
+    </html>
+  `);
+});
 
 app.get('/api/timers', (req, res) => {
   const stmt = db.prepare('SELECT * FROM timers');

@@ -137,6 +137,53 @@
         <button id="change-password-btn" class="action-btn">Change Password</button>
         <div id="password-change-msg" class="status-msg"></div>
       </div>
+      
+      <div class="settings-card">
+        <h3>PC Shutdown Configuration</h3>
+        <p style="margin-bottom: 15px; color: #aaa;">Configure how each PC receives shutdown commands</p>
+        <div class="setting-item">
+          <label>PC Number:</label>
+          <select id="pc-config-select">
+            <option value="1">PC 1</option>
+            <option value="2">PC 2</option>
+            <option value="3">PC 3</option>
+            <option value="4">PC 4</option>
+            <option value="5">PC 5</option>
+            <option value="6">PC 6</option>
+            <option value="7">PC 7</option>
+            <option value="8">PC 8</option>
+            <option value="9">PC 9</option>
+            <option value="10">PC 10</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label>IP Address:</label>
+          <input type="text" id="pc-ip" placeholder="192.168.1.101">
+        </div>
+        <div class="setting-item">
+          <label>Shutdown Method:</label>
+          <select id="pc-method">
+            <option value="local">Local (same machine)</option>
+            <option value="ssh">SSH (Linux/Mac)</option>
+            <option value="windows-ssh">Windows SSH (recommended for macOS host)</option>
+            <option value="windows-remote">Windows Remote (Windows host only)</option>
+          </select>
+        </div>
+        <div class="setting-item" id="pc-username-item">
+          <label>Username:</label>
+          <input type="text" id="pc-username" placeholder="admin">
+        </div>
+        <div class="setting-item" id="pc-password-item">
+          <label>Password:</label>
+          <input type="password" id="pc-password" placeholder="(optional for SSH keys)">
+        </div>
+        <button id="save-pc-config-btn" class="action-btn">Save PC Configuration</button>
+        <div id="pc-config-msg" class="status-msg"></div>
+        <div style="margin-top: 15px; padding: 10px; background: #2a2a2a; border-radius: 6px;">
+          <strong>Quick Setup:</strong>
+          <button id="auto-config-btn" class="action-btn" style="margin-top: 10px;">Auto-configure All PCs (192.168.1.101-110)</button>
+        </div>
+      </div>
     </div>
   </div>
   </div> <!-- End main-app -->
