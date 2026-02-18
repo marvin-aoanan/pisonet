@@ -1,0 +1,106 @@
+<Window x:Class="PisoNet.UI.Views.CoinAcceptorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Insert Coin" Height="500" Width="400"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E1E"
+        ResizeMode="NoResize"
+        WindowStyle="None"
+        AllowsTransparency="True">
+    
+    <Window.Resources>
+        <Storyboard x:Key="CoinDropAnimation" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="Coin1"
+                           Storyboard.TargetProperty="(Canvas.Top)"
+                           From="-30" To="180" Duration="0:0:1.5"
+                           BeginTime="0:0:0"/>
+            <DoubleAnimation Storyboard.TargetName="Coin2"
+                           Storyboard.TargetProperty="(Canvas.Top)"
+                           From="-30" To="180" Duration="0:0:1.5"
+                           BeginTime="0:0:0.5"/>
+            <DoubleAnimation Storyboard.TargetName="Coin3"
+                           Storyboard.TargetProperty="(Canvas.Top)"
+                           From="-30" To="180" Duration="0:0:1.5"
+                           BeginTime="0:0:1"/>
+        </Storyboard>
+    </Window.Resources>
+    
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="Loaded">
+            <BeginStoryboard Storyboard="{StaticResource CoinDropAnimation}"/>
+        </EventTrigger>
+    </Window.Triggers>
+    
+    <Border BorderBrush="#FFD700" BorderThickness="3" CornerRadius="10">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <Border Grid.Row="0" Background="#2D2D30" Padding="20" CornerRadius="10,10,0,0">
+                <StackPanel>
+                    <TextBlock Text="{Binding SelectedPcName, StringFormat='You have selected {0}'}" 
+                               Foreground="#FFD700" FontSize="24" FontWeight="Bold" 
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="You can now insert coin" 
+                               Foreground="White" FontSize="16" 
+                               HorizontalAlignment="Center" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Coin Acceptor Animation -->
+            <Canvas Grid.Row="1" Background="#252526" Margin="20">
+                <!-- Coin Slot -->
+                <Rectangle Width="120" Height="200" Fill="#333333" 
+                          Canvas.Left="140" Canvas.Top="10"
+                          Stroke="#555555" StrokeThickness="2" RadiusX="10" RadiusY="10"/>
+                <Rectangle Width="100" Height="15" Fill="#1E1E1E" 
+                          Canvas.Left="150" Canvas.Top="20"
+                          Stroke="#FFD700" StrokeThickness="2" RadiusX="5" RadiusY="5"/>
+                
+                <!-- Animated Coins -->
+                <Ellipse x:Name="Coin1" Width="30" Height="30" Fill="#FFD700" 
+                        Canvas.Left="185" Canvas.Top="-30"
+                        Stroke="#FFA500" StrokeThickness="2"/>
+                <Ellipse x:Name="Coin2" Width="30" Height="30" Fill="#FFD700" 
+                        Canvas.Left="185" Canvas.Top="-30"
+                        Stroke="#FFA500" StrokeThickness="2"/>
+                <Ellipse x:Name="Coin3" Width="30" Height="30" Fill="#FFD700" 
+                        Canvas.Left="185" Canvas.Top="-30"
+                        Stroke="#FFA500" StrokeThickness="2"/>
+                
+                <!-- Collection Box -->
+                <Rectangle Width="140" Height="40" Fill="#1E1E1E" 
+                          Canvas.Left="130" Canvas.Top="220"
+                          Stroke="#FFD700" StrokeThickness="2" RadiusX="5" RadiusY="5"/>
+                <TextBlock Text="💰" FontSize="24" 
+                          Canvas.Left="190" Canvas.Top="225" Foreground="#FFD700"/>
+            </Canvas>
+
+            <!-- Coin Value Buttons -->
+            <Border Grid.Row="2" Background="#2D2D30" Padding="20" CornerRadius="0,0,10,10">
+                <StackPanel>
+                    <TextBlock Text="Test Coin Insertion:" Foreground="White" 
+                              FontSize="14" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Content="₱1" Width="80" Height="50" Margin="5" FontSize="20" FontWeight="Bold"
+                                Background="#4CAF50" Foreground="White"
+                                Click="InsertCoin1_Click"/>
+                        <Button Content="₱5" Width="80" Height="50" Margin="5" FontSize="20" FontWeight="Bold"
+                                Background="#2196F3" Foreground="White"
+                                Click="InsertCoin5_Click"/>
+                        <Button Content="₱10" Width="80" Height="50" Margin="5" FontSize="20" FontWeight="Bold"
+                                Background="#FF9800" Foreground="White"
+                                Click="InsertCoin10_Click"/>
+                    </StackPanel>
+                    <Button Content="Close" Width="120" Height="40" Margin="0,10,0,0"
+                            Background="#D32F2F" Foreground="White"
+                            Click="Close_Click" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

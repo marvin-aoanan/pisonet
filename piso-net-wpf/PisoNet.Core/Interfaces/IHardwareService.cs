@@ -12,6 +12,7 @@ namespace PisoNet.Core.Interfaces
         void TurnOn(int unitId);
         void TurnOff(int unitId);
         void ShutdownPC(int unitId);
+        void SelectUnit(int unitId);
         
         event System.EventHandler<CoinInsertEventArgs> CoinInserted;
     }

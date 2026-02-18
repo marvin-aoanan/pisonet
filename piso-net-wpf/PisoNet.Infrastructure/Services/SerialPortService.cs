@@ -84,5 +84,14 @@ namespace PisoNet.Infrastructure.Services
                 _serialPort.WriteLine($"SHUTDOWN:{unitId}");
             }
         }
+
+        public void SelectUnit(int unitId)
+        {
+            if (_isConnected && _serialPort != null)
+            {
+                // Send command to microcontroller: "SELECT:1"
+                _serialPort.WriteLine($"SELECT:{unitId}");
+            }
+        }
     }
 }

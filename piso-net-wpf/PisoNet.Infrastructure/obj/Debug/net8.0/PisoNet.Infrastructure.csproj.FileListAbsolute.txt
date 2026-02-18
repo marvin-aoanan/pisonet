@@ -1,0 +1,16 @@
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\bin\Debug\net8.0\PisoNet.Infrastructure.deps.json
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\bin\Debug\net8.0\PisoNet.Infrastructure.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\bin\Debug\net8.0\PisoNet.Infrastructure.pdb
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\bin\Debug\net8.0\PisoNet.Core.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\bin\Debug\net8.0\PisoNet.Core.pdb
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.csproj.AssemblyReference.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.AssemblyInfoInputs.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.AssemblyInfo.cs
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.csproj.CoreCompileInputs.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.sourcelink.json
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet..FE1691ED.Up2Date
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\refint\PisoNet.Infrastructure.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\PisoNet.Infrastructure.pdb
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Infrastructure\obj\Debug\net8.0\ref\PisoNet.Infrastructure.dll

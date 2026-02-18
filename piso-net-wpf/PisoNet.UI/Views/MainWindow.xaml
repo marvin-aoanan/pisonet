@@ -15,6 +15,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -28,8 +29,48 @@
             </StackPanel>
         </Border>
 
-        <!-- Main Content -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <!-- Customer View: Select Target PC -->
+        <Border Grid.Row="1" Background="#252526" Padding="20" BorderBrush="#3E3E42" BorderThickness="0,1">
+            <StackPanel>
+                <TextBlock Text="SELECT PC FOR COIN" Foreground="#FFD700" FontSize="18" FontWeight="Bold" Margin="0,0,0,15"/>
+                <ItemsControl ItemsSource="{Binding Units}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="#3C3C3C" CornerRadius="6" Margin="0,0,10,10" Padding="20,15" Cursor="Hand"
+                                    MinWidth="100">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="BorderThickness" Value="3"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <Setter Property="BorderBrush" Value="#FFD700"/>
+                                                <Setter Property="Background" Value="#4A4A00"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Border.InputBindings>
+                                    <MouseBinding MouseAction="LeftClick" 
+                                                  Command="{Binding DataContext.SelectUnitCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  CommandParameter="{Binding Id}" />
+                                </Border.InputBindings>
+                                <TextBlock Text="{Binding Name}" Foreground="White" FontSize="20" FontWeight="Bold" 
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <!-- Admin View: PC Status Cards -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{Binding Units}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -52,7 +93,17 @@
                                 <TextBlock Text="{Binding TotalRevenue, StringFormat='Revenue: ₱{0:N2}'}" 
                                            Foreground="#FFCC00" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                                 
-                                <Button Content="Shutdown" Background="#D32F2F" Foreground="White" Margin="0,10,0,0" Padding="5"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+                                    <Button Content="On" Margin="0,0,6,0"
+                                            Command="{Binding DataContext.TurnOnCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="Off" Margin="0,0,6,0"
+                                            Command="{Binding DataContext.TurnOffCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Content="Shutdown" Background="#D32F2F" Foreground="White"
+                                            Command="{Binding DataContext.ShutdownCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -61,9 +112,15 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <StatusBar Grid.Row="2" Background="#007ACC" Foreground="White">
+        <StatusBar Grid.Row="3" Background="#007ACC" Foreground="White">
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusMessage}" />
+            </StatusBarItem>
+            <StatusBarItem>
+                <Button Content="{Binding SelectedUnitId, StringFormat='Test +₱1 (PC {0})'}"
+                        Command="{Binding AddTestCoinCommand}"
+                        Background="Transparent" BorderThickness="1"
+                        BorderBrush="White" Foreground="White"/>
             </StatusBarItem>
              <StatusBarItem HorizontalAlignment="Right">
                 <Button Content="Connect Hardware" Command="{Binding ConnectHardwareCommand}" Background="Transparent" BorderThickness="0" Foreground="White"/>

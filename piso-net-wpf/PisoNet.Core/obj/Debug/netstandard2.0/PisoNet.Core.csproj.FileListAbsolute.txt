@@ -1,0 +1,11 @@
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\bin\Debug\netstandard2.0\PisoNet.Core.deps.json
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\bin\Debug\netstandard2.0\PisoNet.Core.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\bin\Debug\netstandard2.0\PisoNet.Core.pdb
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.csproj.AssemblyReference.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.AssemblyInfoInputs.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.AssemblyInfo.cs
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.csproj.CoreCompileInputs.cache
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.sourcelink.json
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.dll
+C:\Users\bilyunir\pisonet\piso-net-wpf\PisoNet.Core\obj\Debug\netstandard2.0\PisoNet.Core.pdb
