@@ -67,12 +67,12 @@ router.get('/revenue/daily', (req, res) => {
   
   db.all(`
     SELECT 
-      DATE(timestamp) as date,
+      DATE(timestamp, 'localtime') as date,
       COALESCE(SUM(amount), 0) as daily_revenue,
       COUNT(*) as transaction_count
     FROM transactions
-    WHERE timestamp >= datetime('now', '-${days} days')
-    GROUP BY DATE(timestamp)
+    WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', '-${days} days')
+    GROUP BY DATE(timestamp, 'localtime')
     ORDER BY date DESC
   `, [], (err, rows) => {
     if (err) {

@@ -30,74 +30,87 @@ function CustomerView({ units, onSelectUnit }) {
   };
 
   return (
-    <Grid container spacing={3}>
+    <Box
+      sx={{
+        //height: '1024px',
+        //maxHeight: '800px',
+        overflow: 'hidden',
+        p: 1,
+        display: 'grid',
+        gridTemplateColumns: {
+          xs: 'repeat(2, minmax(0, 1fr))',
+          sm: 'repeat(4, minmax(0, 1fr))',
+          md: 'repeat(5, minmax(0, 1fr))',
+        },
+        gap: 1,
+      }}
+    >
       {units.map((unit) => (
-        <Grid item xs={12} sm={6} md={4} lg={3} key={unit.id}>
-          <Card 
-            elevation={unit.is_active ? 8 : 2}
-            sx={{ 
-              height: '100%', 
-              display: 'flex', 
-              flexDirection: 'column',
-              border: unit.is_active ? '2px solid #00E676' : '1px solid #424242',
-              position: 'relative',
-              overflow: 'visible'
-            }}
-          >
-            {unit.is_active && (
+        <Card 
+          key={unit.id}
+          elevation={unit.remaining_seconds > 0 ? 6 : 1}
+          sx={{ 
+            height: 'auto', 
+            display: 'flex', 
+            flexDirection: 'column',
+            border: unit.remaining_seconds > 0 ? '2px solid #00E676' : '1px solid #424242',
+            position: 'relative',
+            overflow: 'hidden',
+            alignSelf: 'start'
+          }}
+        >
+            {unit.remaining_seconds > 0 && (
               <Chip 
                 label="ACTIVE" 
                 color="success" 
                 size="small" 
-                sx={{ position: 'absolute', top: -12, right: 12 }}
+                sx={{ position: 'absolute', top: 6, right: 6 }}
               />
             )}
             
-            <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
-              <PcIcon sx={{ fontSize: 60, color: unit.is_active ? 'success.main' : 'text.disabled', mb: 2 }} />
+            <CardContent sx={{ textAlign: 'center', p: 1, pb: 0.5 }}>
+              <PcIcon sx={{ fontSize: 28, color: unit.remaining_seconds > 0 ? 'success.main' : 'text.disabled', mb: 0.5 }} />
               
-              <Typography variant="h5" component="div" gutterBottom>
+              <Typography variant="subtitle1" component="div" gutterBottom>
                 {unit.name}
               </Typography>
               
-              <Box sx={{ my: 2, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
-                <Typography variant="h3" component="div" sx={{ fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 2 }}>
+              <Box sx={{ my: 1, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+                <Typography variant="h5" component="div" sx={{ fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 0.5 }}>
                   {formatTime(unit.remaining_seconds)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
                   REMAINING TIME
                 </Typography>
               </Box>
 
-              {unit.is_active && (
+              {unit.remaining_seconds > 0 && (
                 <LinearProgress 
                   variant="determinate" 
                   value={unit.remaining_seconds > 0 ? 100 : 0} 
                   color={getStatusColor(unit.status, unit.remaining_seconds)}
-                  sx={{ mt: 2, height: 8, borderRadius: 4 }}
+                  sx={{ mt: 1, height: 4, borderRadius: 4 }}
                 />
               )}
             </CardContent>
 
-            <Divider />
-
-            <CardActions>
+            <CardActions sx={{ p: 0.5, pt: 0.25, pb: 0.25 }}>
               <Button 
                 fullWidth 
                 variant="contained" 
                 color="primary" 
-                size="large"
+                size="small"
                 startIcon={<TimeIcon />}
                 onClick={() => onSelectUnit(unit.id)}
                 disabled={unit.status === 'maintenance'}
+                sx={{ minHeight: 32 }}
               >
                 Insert Coin
               </Button>
             </CardActions>
-          </Card>
-        </Grid>
+        </Card>
       ))}
-    </Grid>
+    </Box>
   );
 }
 
