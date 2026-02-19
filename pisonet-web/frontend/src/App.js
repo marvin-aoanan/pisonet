@@ -1,13 +1,53 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import './App.css';
+import { 
+  AppBar, 
+  Toolbar, 
+  Typography, 
+  Container, 
+  Box, 
+  Button, 
+  Chip, 
+  CircularProgress,
+  Alert,
+  Snackbar,
+  Grid,
+  Paper,
+  IconButton,
+  createTheme,
+  ThemeProvider,
+  CssBaseline
+} from '@mui/material';
+import {
+  Monitor as MonitorIcon,
+  Timeline as TimelineIcon,
+  Refresh as RefreshIcon,
+  Wifi as WifiIcon,
+  WifiOff as WifiOffIcon
+} from '@mui/icons-material';
 import CustomerView from './components/CustomerView';
 import AdminView from './components/AdminView';
 import CoinDialog from './components/CoinDialog';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5000';
-const REFRESH_INTERVAL = 5000; // Refresh every 5 seconds
+const darkTheme = createTheme({
+  palette: {
+    mode: 'dark',
+    primary: {
+      main: '#007ACC',
+    },
+    secondary: {
+      main: '#FFCC00',
+    },
+    background: {
+      default: '#121212',
+      paper: '#1E1E1E',
+    },
+  },
+});
+
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5001';
+const REFRESH_INTERVAL = 5001; // Refresh every 5 seconds
 const RECONNECT_INTERVAL = 3000; // Try to reconnect every 3 seconds
 
 function App() {
@@ -243,93 +283,107 @@ function App() {
   const selectedUnit = units.find(u => u.id === selectedUnitId);
 
   return (
-    <div className="App">
-      {/* Header */}
-      <header className="app-header">
-        <div className="header-left">
-          <h1>🖥️ PisoNet Manager</h1>
-        </div>
-        <div className="header-center">
-          <div className={`connection-status ${wsConnected ? 'connected' : 'disconnected'}`}>
-            <span className="status-dot"></span>
-            {wsConnected ? 'Live Updates' : 'Offline Mode'}
-          </div>
-        </div>
-        <div className="header-right">
-          <div className="total-revenue">
-            💵 ₱{totalRevenue.toFixed(2)}
-          </div>
-          <div className="view-toggle">
-            <button 
-              className={`toggle-btn ${viewMode === 'customer' ? 'active' : ''}`}
-              onClick={() => setViewMode('customer')}
-            >
-              Customer View
-            </button>
-            <button 
-              className={`toggle-btn ${viewMode === 'admin' ? 'active' : ''}`}
-              onClick={() => setViewMode('admin')}
-            >
-              Admin Dashboard
-            </button>
-          </div>
-        </div>
-      </header>
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        {/* Header */}
+        <AppBar position="static">
+          <Toolbar>
+            <MonitorIcon sx={{ mr: 2 }} />
+            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+              PisoNet Manager
+            </Typography>
+            
+            {/* Connection Status */}
+            <Chip 
+              icon={wsConnected ? <WifiIcon /> : <WifiOffIcon />}
+              label={wsConnected ? 'Live Updates' : 'Offline'}
+              color={wsConnected ? 'success' : 'error'}
+              variant="outlined"
+              sx={{ mr: 2 }}
+            />
 
-      {/* Main Content */}
-      <main className="app-content">
-        {isLoading ? (
-          <div className="loading-container">
-            <div className="spinner"></div>
-            <p>Loading system...</p>
-          </div>
-        ) : error && viewMode === 'customer' ? (
-          <div className="error-container">
-            <p>❌ {error}</p>
-            <button onClick={fetchUnits}>Retry</button>
-          </div>
-        ) : (
-          <>
-            {viewMode === 'customer' ? (
-              <CustomerView 
-                units={units} 
-                selectedUnitId={selectedUnitId}
-                onSelectUnit={handleSelectUnit}
-              />
-            ) : (
-              <AdminView 
-                units={units}
-                totalRevenue={totalRevenue}
-                onControl={handleControl}
-                onAddTime={handleAddTime}
-              />
+            {/* Revenue Display */}
+            <Typography variant="h6" sx={{ mr: 2, color: 'secondary.main', fontWeight: 'bold' }}>
+              ₱{totalRevenue.toFixed(2)}
+            </Typography>
+
+            {/* View Toggle */}
+            <Button 
+              color="inherit" 
+              onClick={() => setViewMode(viewMode === 'customer' ? 'admin' : 'customer')}
+              startIcon={viewMode === 'customer' ? <TimelineIcon /> : <MonitorIcon />}
+            >
+              {viewMode === 'customer' ? 'Admin Dashboard' : 'Customer View'}
+            </Button>
+          </Toolbar>
+        </AppBar>
+
+        {/* Main Content */}
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 4, flexGrow: 1 }}>
+          {isLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+              <CircularProgress size={60} />
+            </Box>
+          ) : error && viewMode === 'customer' ? (
+            <Alert severity="error" action={
+              <Button color="inherit" size="small" onClick={fetchUnits}>
+                Retry
+              </Button>
+            }>
+              {error}
+            </Alert>
+          ) : (
+            <>
+              {viewMode === 'customer' ? (
+                <CustomerView 
+                  units={units} 
+                  selectedUnitId={selectedUnitId}
+                  onSelectUnit={handleSelectUnit}
+                />
+              ) : (
+                <AdminView 
+                  units={units}
+                  totalRevenue={totalRevenue}
+                  onControl={handleControl}
+                  onAddTime={handleAddTime}
+                />
+              )}
+            </>
+          )}
+        </Container>
+
+        {/* Status Bar */}
+        <Paper component="footer" square sx={{ py: 1, px: 3, mt: 'auto', backgroundColor: 'background.paper' }}>
+          <Grid container alignItems="center" spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="caption" color="text.secondary">
+                {statusMessage}
+              </Typography>
+            </Grid>
+            {stats && (
+              <Grid item xs={12} md={6} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
+                <Typography variant="caption" color="text.secondary">
+                  🖥️ {stats.total_units} PCs · ⏳ {stats.active_units} Active · 📊 {stats.total_transactions} Transactions
+                </Typography>
+              </Grid>
             )}
-          </>
-        )}
-      </main>
+          </Grid>
+        </Paper>
 
-      {/* Status Bar */}
-      <footer className="status-bar">
-        <span className="status-message">{statusMessage}</span>
-        {stats && (
-          <span className="status-stats">
-            🖥️ {stats.total_units} PCs · ⏳ {stats.active_units} Active · 📊 {stats.total_transactions} Transactions
-          </span>
+        {/* Coin Dialog Modal */}
+        {showCoinDialog && selectedUnit && (
+          <CoinDialog
+            unit={selectedUnit}
+            onInsertCoin={handleInsertCoin}
+            onClose={() => {
+              setShowCoinDialog(false);
+              setSelectedUnitId(null);
+            }}
+          />
         )}
-      </footer>
-
-      {/* Coin Dialog Modal */}
-      {showCoinDialog && selectedUnit && (
-        <CoinDialog
-          unit={selectedUnit}
-          onInsertCoin={handleInsertCoin}
-          onClose={() => {
-            setShowCoinDialog(false);
-            setSelectedUnitId(null);
-          }}
-        />
-      )}
-    </div>
+      </Box>
+    </ThemeProvider>
   );
 }
 

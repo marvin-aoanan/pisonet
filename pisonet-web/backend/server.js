@@ -13,14 +13,14 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Middleware - CORS configuration
 const corsOptions = {
   origin: process.env.CORS_ORIGIN ? 
     process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : 
-    ['http://localhost:3000', 'http://localhost:5000', 'http://127.0.0.1:3000'],
+    ['http://localhost:3000', 'http://localhost:5001', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
