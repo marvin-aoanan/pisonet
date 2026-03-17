@@ -1,0 +1,18 @@
+{
+  "name": "orangepi-gateway",
+  "version": "1.0.0",
+  "description": "Orange Pi Gateway for Pisonet coin acceptor and button matrix",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

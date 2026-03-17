@@ -46,6 +46,84 @@ app.use('/api/units', unitsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/settings', settingsRouter);
 
+// Compatibility endpoint for Orange Pi gateway
+// Expected payload: { unitNumber, amount, timestamp?, gateway? }
+app.post('/api/coin-events', (req, res) => {
+  const { unitNumber, amount } = req.body;
+
+  const unitId = parseInt(unitNumber, 10);
+  const amountValue = parseFloat(amount);
+
+  if (!unitId || Number.isNaN(unitId) || !amountValue || amountValue <= 0) {
+    return res.status(400).json({
+      error: 'Invalid payload. unitNumber and amount are required.'
+    });
+  }
+
+  db.get(`SELECT key, value FROM settings WHERE key = 'peso_to_seconds'`, [], (err, setting) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    const conversionRate = setting ? parseInt(setting.value) : 60;
+    const secondsToAdd = Math.floor(amountValue * conversionRate);
+
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      if (!unit) {
+        return res.status(404).json({ error: `Unit ${unitId} not found` });
+      }
+
+      const newSeconds = unit.remaining_seconds + secondsToAdd;
+      const newRevenue = unit.total_revenue + amountValue;
+      const newStatus = newSeconds > 0 ? 'Active' : unit.status;
+
+      db.run(
+        'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
+        [newSeconds, newRevenue, newStatus, new Date().toISOString(), unitId],
+        function(updateErr) {
+          if (updateErr) {
+            return res.status(500).json({ error: updateErr.message });
+          }
+
+          db.run(
+            'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
+            [unitId, amountValue, amountValue, new Date().toISOString(), 'coin'],
+            (txErr) => {
+              if (txErr) {
+                console.error('Error recording transaction:', txErr);
+              }
+            }
+          );
+
+          if (global.broadcast) {
+            global.broadcast({
+              type: 'COIN_INSERTED',
+              unit: {
+                id: unitId,
+                remaining_seconds: newSeconds,
+                total_revenue: newRevenue,
+                status: newStatus
+              }
+            });
+          }
+
+          return res.json({
+            message: 'Coin event processed',
+            unit_id: unitId,
+            amount: amountValue,
+            seconds_added: secondsToAdd,
+            new_remaining_seconds: newSeconds,
+            status: newStatus
+          });
+        }
+      );
+    });
+  });
+});
+
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
@@ -230,14 +308,14 @@ async function startServer() {
     });
   }, 1000);
 
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log('\n' + '='.repeat(60));
     console.log('🚀 PisoNet Backend Server Started');
     console.log(`   Port: ${PORT}`);
     console.log(`   Environment: ${NODE_ENV}`);
     console.log(`   Database: ${process.env.DATABASE_PATH || './pisonet.db'}`);
     console.log(`   CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
-    console.log(`   WebSocket: ws://localhost:${PORT}`);
+    console.log(`   WebSocket: ws://0.0.0.0:${PORT}`);
     console.log('='.repeat(60) + '\n');
   });
 }
