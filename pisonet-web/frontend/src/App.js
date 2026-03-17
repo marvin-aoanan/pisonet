@@ -47,8 +47,8 @@ const darkTheme = createTheme({
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5001';
-const REFRESH_INTERVAL = 5001; // Refresh every 5 seconds
-const RECONNECT_INTERVAL = 3000; // Try to reconnect every 3 seconds
+const REFRESH_INTERVAL = 1001; // Refresh every 1 second
+const RECONNECT_INTERVAL = 5000; // Try to reconnect every 5 seconds
 
 function App() {
   // State
