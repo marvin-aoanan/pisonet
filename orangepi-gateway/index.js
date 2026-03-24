@@ -3,7 +3,7 @@ const { SerialPort } = require('serialport');
 const axios = require('axios');
 
 // Configuration
-const SERVER_URL = process.env.SERVER_URL || 'http://192.168.254.106:5001/api/coin-events';
+const SERVER_URL = process.env.SERVER_URL || 'http://192.168.254.110:5001/api/coin-events';
 const SERIAL_PORT = process.env.SERIAL_PORT || '/dev/ttyUSB0';
 const BAUD_RATE = parseInt(process.env.BAUD_RATE) || 9600;
 const COIN_VALUE = parseInt(process.env.COIN_VALUE) || 5;
@@ -76,7 +76,7 @@ async function sendCoinEvent(unitNumber, amount) {
       timestamp: new Date().toISOString(),
       gateway: 'orangepi-001'
     }, {
-      timeout: 5000,
+      timeout: 50000,
       headers: {
         'Content-Type': 'application/json'
       }

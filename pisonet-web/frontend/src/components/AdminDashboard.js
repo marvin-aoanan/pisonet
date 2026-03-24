@@ -31,7 +31,7 @@ import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { areaElementClasses, lineElementClasses, chartsAxisHighlightClasses } from '@mui/x-charts';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
 function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
   const [loading, setLoading] = useState(null);

@@ -4,7 +4,7 @@ import { Box, Typography, Chip, LinearProgress } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import CustomGridToolbar from './CustomGridToolbar';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
 function AdminTransactions() {
   const [rows, setRows] = useState([]);

@@ -45,8 +45,35 @@ const darkTheme = createTheme({
   },
 });
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:5001';
+const resolveApiUrl = () => {
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+
+  const protocol = window.location.protocol;
+  const host = window.location.hostname || 'localhost';
+  return `${protocol}//${host}:5001/api`;
+};
+
+const API_URL = resolveApiUrl();
+
+const resolveWsUrl = () => {
+  if (process.env.REACT_APP_WS_URL) {
+    return process.env.REACT_APP_WS_URL;
+  }
+
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL
+      .replace(/\/api\/?$/, '')
+      .replace(/^http:/, 'ws:')
+      .replace(/^https:/, 'wss:');
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.hostname}:5001`;
+};
+
+const WS_URL = resolveWsUrl();
 const REFRESH_INTERVAL = 1001; // Refresh every 1 second
 const RECONNECT_INTERVAL = 5000; // Try to reconnect every 5 seconds
 
@@ -56,13 +83,13 @@ function App() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [selectedUnitId, setSelectedUnitId] = useState(null);
   const [showCoinDialog, setShowCoinDialog] = useState(false);
+  const [selection, setSelection] = useState({ unit_id: null, expires_at: null, timeout_ms: 30000 });
   const [statusMessage, setStatusMessage] = useState('Initializing...');
   const [wsConnected, setWsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [stats, setStats] = useState(null);
   const [viewMode, setViewMode] = useState('customer'); // customer or admin
-  const [ws, setWs] = useState(null);
 
   // Fetch units
   const fetchUnits = useCallback(async () => {
@@ -97,22 +124,33 @@ function App() {
     }
   }, []);
 
+  // Fetch kiosk selection
+  const fetchSelection = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/kiosk/selection`);
+      setSelection(response.data);
+    } catch (error) {
+      console.error('Error fetching selection:', error);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
       await Promise.all([fetchUnits(), fetchTotalRevenue(), fetchStats()]);
+      await fetchSelection();
       setIsLoading(false);
       setStatusMessage('✅ System Ready');
     };
 
     loadInitialData();
-  }, [fetchUnits, fetchTotalRevenue, fetchStats]);
+  }, [fetchUnits, fetchTotalRevenue, fetchStats, fetchSelection]);
 
   // WebSocket connection with auto-reconnect
   useEffect(() => {
     let reconnectTimeout;
-    let wsInstance = ws;
+    let wsInstance;
 
     const connectWebSocket = () => {
       try {
@@ -154,6 +192,22 @@ function App() {
                 );
                 fetchTotalRevenue();
                 setStatusMessage(`💵 Coin inserted to ${data.unit.id}`);
+                if (showCoinDialog && selection.unit_id === data.unit.id) {
+                  setShowCoinDialog(false);
+                  setSelectedUnitId(null);
+                }
+                break;
+
+              case 'SELECTION_UPDATED':
+                setSelection((prev) => ({
+                  ...prev,
+                  ...data.selection,
+                  timeout_ms: prev.timeout_ms
+                }));
+                if (!data.selection?.unit_id) {
+                  setShowCoinDialog(false);
+                  setSelectedUnitId(null);
+                }
                 break;
 
               case 'HARDWARE_CONTROL':
@@ -188,7 +242,6 @@ function App() {
         };
 
         wsInstance = websocket;
-        setWs(websocket);
 
         // Keep-alive ping
         const pingInterval = setInterval(() => {
@@ -212,7 +265,7 @@ function App() {
         wsInstance.close();
       }
     };
-  }, []);
+  }, [fetchTotalRevenue, selection.unit_id, showCoinDialog]);
 
   // Periodic refresh of data
   useEffect(() => {
@@ -220,33 +273,36 @@ function App() {
       fetchUnits();
       fetchTotalRevenue();
       fetchStats();
+      fetchSelection();
     }, REFRESH_INTERVAL);
 
     return () => clearInterval(refreshInterval);
-  }, [fetchUnits, fetchTotalRevenue, fetchStats]);
+  }, [fetchUnits, fetchTotalRevenue, fetchStats, fetchSelection]);
 
   // Handle select unit
-  const handleSelectUnit = (unitId) => {
-    setSelectedUnitId(unitId);
-    setShowCoinDialog(true);
+  const handleSelectUnit = async (unitId) => {
+    try {
+      const response = await axios.post(`${API_URL}/kiosk/selection`, { unitId });
+      setSelection(response.data);
+      setSelectedUnitId(unitId);
+      setShowCoinDialog(true);
+      setStatusMessage(`🪙 Waiting for coin on PC ${unitId}`);
+    } catch (error) {
+      console.error('Error selecting unit:', error);
+      setStatusMessage(error.response?.data?.error || '❌ Failed to select unit');
+    }
   };
 
-  // Handle insert coin
-  const handleInsertCoin = async (amount) => {
+  const handleCancelSelection = async () => {
     try {
-      const response = await axios.post(
-        `${API_URL}/units/${selectedUnitId}/add-time`,
-        { amount, denomination: amount }
-      );
-      setStatusMessage(`✅ ₱${amount} inserted to PC ${selectedUnitId}`);
+      await axios.delete(`${API_URL}/kiosk/selection`);
+      setSelection({ unit_id: null, expires_at: null, timeout_ms: selection.timeout_ms });
       setShowCoinDialog(false);
       setSelectedUnitId(null);
-      fetchUnits();
-      fetchTotalRevenue();
-      return response.data;
+      setStatusMessage('Selection cancelled');
     } catch (error) {
-      console.error('Error inserting coin:', error);
-      throw new Error(error.response?.data?.error || 'Failed to insert coin');
+      console.error('Error cancelling selection:', error);
+      setStatusMessage('❌ Failed to cancel selection');
     }
   };
 
@@ -280,7 +336,7 @@ function App() {
     }
   };
 
-  const selectedUnit = units.find(u => u.id === selectedUnitId);
+  const selectedUnit = units.find(u => u.id === selectedUnitId || u.id === selection.unit_id);
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -375,11 +431,8 @@ function App() {
         {showCoinDialog && selectedUnit && (
           <CoinDialog
             unit={selectedUnit}
-            onInsertCoin={handleInsertCoin}
-            onClose={() => {
-              setShowCoinDialog(false);
-              setSelectedUnitId(null);
-            }}
+            selection={selection}
+            onClose={handleCancelSelection}
           />
         )}
       </Box>

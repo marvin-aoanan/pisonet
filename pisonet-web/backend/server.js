@@ -3,6 +3,7 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const http = require('http');
 require('dotenv').config();
+const CoinAcceptor = require('./hardware/coin-acceptor');
 
 const db = require('./database');
 const unitsRouter = require('./routes/units');
@@ -15,6 +16,207 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Kiosk + hardware configuration
+const COIN_ACCEPTOR_ENABLED = (process.env.COIN_ACCEPTOR_ENABLED || 'false').toLowerCase() === 'true';
+const COIN_PORT = process.env.SERIAL_PORT || '/dev/ttyUSB0';
+const COIN_BAUD_RATE = parseInt(process.env.BAUD_RATE || '9600', 10);
+const COIN_VALUE = parseFloat(process.env.COIN_VALUE || '1');
+const COIN_DEBOUNCE_MS = parseInt(process.env.COIN_DEBOUNCE_MS || process.env.COIN_PULSE_THRESHOLD || '50', 10);
+const SELECTION_TIMEOUT_MS = parseInt(process.env.SELECTION_TIMEOUT_MS || '30000', 10);
+
+let coinAcceptor = null;
+let selectedUnit = null;
+let selectionExpiresAt = null;
+let selectionTimeout = null;
+
+function clearSelectedUnit(reason = 'cleared') {
+  selectedUnit = null;
+  selectionExpiresAt = null;
+
+  if (selectionTimeout) {
+    clearTimeout(selectionTimeout);
+    selectionTimeout = null;
+  }
+
+  if (global.broadcast) {
+    global.broadcast({
+      type: 'SELECTION_UPDATED',
+      selection: {
+        unit_id: null,
+        expires_at: null,
+        reason
+      }
+    });
+  }
+}
+
+function setSelectedUnit(unitId) {
+  selectedUnit = parseInt(unitId, 10);
+  selectionExpiresAt = new Date(Date.now() + SELECTION_TIMEOUT_MS).toISOString();
+
+  if (selectionTimeout) {
+    clearTimeout(selectionTimeout);
+  }
+
+  selectionTimeout = setTimeout(() => {
+    clearSelectedUnit('timeout');
+  }, SELECTION_TIMEOUT_MS);
+
+  if (global.broadcast) {
+    global.broadcast({
+      type: 'SELECTION_UPDATED',
+      selection: {
+        unit_id: selectedUnit,
+        expires_at: selectionExpiresAt,
+        reason: 'selected'
+      }
+    });
+  }
+}
+
+function getSelectionSnapshot() {
+  return {
+    unit_id: selectedUnit,
+    expires_at: selectionExpiresAt,
+    timeout_ms: SELECTION_TIMEOUT_MS
+  };
+}
+
+function addCoinToUnit(unitId, amountValue, source = 'api', cb) {
+  db.get(`SELECT key, value FROM settings WHERE key = 'peso_to_seconds'`, [], (err, setting) => {
+    if (err) {
+      return cb(err);
+    }
+
+    const conversionRate = setting ? parseInt(setting.value, 10) : 60;
+    const secondsToAdd = Math.floor(amountValue * conversionRate);
+
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (unitErr, unit) => {
+      if (unitErr) {
+        return cb(unitErr);
+      }
+      if (!unit) {
+        return cb(new Error(`Unit ${unitId} not found`));
+      }
+
+      const newSeconds = unit.remaining_seconds + secondsToAdd;
+      const newRevenue = unit.total_revenue + amountValue;
+      const newStatus = newSeconds > 0 ? 'Active' : unit.status;
+
+      db.run(
+        'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
+        [newSeconds, newRevenue, newStatus, new Date().toISOString(), unitId],
+        function(updateErr) {
+          if (updateErr) {
+            return cb(updateErr);
+          }
+
+          db.run(
+            'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
+            [unitId, amountValue, amountValue, new Date().toISOString(), source],
+            (txErr) => {
+              if (txErr) {
+                console.error('Error recording transaction:', txErr);
+              }
+            }
+          );
+
+          if (global.broadcast) {
+            global.broadcast({
+              type: 'COIN_INSERTED',
+              unit: {
+                id: unitId,
+                remaining_seconds: newSeconds,
+                total_revenue: newRevenue,
+                status: newStatus
+              }
+            });
+          }
+
+          return cb(null, {
+            unit_id: unitId,
+            amount: amountValue,
+            seconds_added: secondsToAdd,
+            new_remaining_seconds: newSeconds,
+            status: newStatus,
+            source
+          });
+        }
+      );
+    });
+  });
+}
+
+async function initializeCoinAcceptor() {
+  if (!COIN_ACCEPTOR_ENABLED) {
+    console.log('Coin acceptor startup disabled (COIN_ACCEPTOR_ENABLED=false)');
+    return;
+  }
+
+  try {
+    coinAcceptor = new CoinAcceptor({
+      portPath: COIN_PORT,
+      baudRate: COIN_BAUD_RATE,
+      coinValue: COIN_VALUE,
+      debounceMs: COIN_DEBOUNCE_MS
+    });
+
+    coinAcceptor.on('connected', () => {
+      console.log(`Coin acceptor connected on ${COIN_PORT}`);
+      if (global.broadcast) {
+        global.broadcast({
+          type: 'HARDWARE_STATUS',
+          hardware: 'coin_acceptor',
+          connected: true,
+          port: COIN_PORT
+        });
+      }
+    });
+
+    coinAcceptor.on('error', (err) => {
+      console.error('Coin acceptor error:', err.message);
+      if (global.broadcast) {
+        global.broadcast({
+          type: 'HARDWARE_STATUS',
+          hardware: 'coin_acceptor',
+          connected: false,
+          error: err.message
+        });
+      }
+    });
+
+    coinAcceptor.on('coin', (event) => {
+      const unitId = selectedUnit;
+      const amountValue = parseFloat(event.amount);
+
+      if (!unitId) {
+        console.log(`Coin detected (amount ${amountValue}) but no unit selected; ignoring event.`);
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'COIN_IGNORED',
+            reason: 'no_unit_selected',
+            amount: amountValue
+          });
+        }
+        return;
+      }
+
+      addCoinToUnit(unitId, amountValue, 'coin_acceptor', (err) => {
+        if (err) {
+          console.error('Failed to apply coin event from coin acceptor:', err.message);
+          return;
+        }
+
+        clearSelectedUnit('coin_applied');
+      });
+    });
+
+    await coinAcceptor.connect();
+  } catch (err) {
+    console.error('Failed to initialize coin acceptor:', err.message);
+  }
+}
 
 // Middleware - CORS configuration
 const corsOptions = {
@@ -46,6 +248,41 @@ app.use('/api/units', unitsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/settings', settingsRouter);
 
+// Kiosk unit selection endpoints
+app.get('/api/kiosk/selection', (req, res) => {
+  res.json(getSelectionSnapshot());
+});
+
+app.post('/api/kiosk/selection', (req, res) => {
+  const { unitId } = req.body;
+  const parsedUnitId = parseInt(unitId, 10);
+
+  if (!parsedUnitId || Number.isNaN(parsedUnitId)) {
+    return res.status(400).json({ error: 'Invalid unitId' });
+  }
+
+  db.get('SELECT id FROM units WHERE id = ?', [parsedUnitId], (err, unit) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!unit) {
+      return res.status(404).json({ error: `Unit ${parsedUnitId} not found` });
+    }
+
+    setSelectedUnit(parsedUnitId);
+
+    return res.json({
+      message: 'Unit selected. Waiting for coin insert.',
+      ...getSelectionSnapshot()
+    });
+  });
+});
+
+app.delete('/api/kiosk/selection', (req, res) => {
+  clearSelectedUnit('cancelled');
+  res.json({ message: 'Selection cleared', ...getSelectionSnapshot() });
+});
+
 // Compatibility endpoint for Orange Pi gateway
 // Expected payload: { unitNumber, amount, timestamp?, gateway? }
 app.post('/api/coin-events', (req, res) => {
@@ -60,66 +297,17 @@ app.post('/api/coin-events', (req, res) => {
     });
   }
 
-  db.get(`SELECT key, value FROM settings WHERE key = 'peso_to_seconds'`, [], (err, setting) => {
+  addCoinToUnit(unitId, amountValue, 'gateway', (err, result) => {
     if (err) {
+      if (err.message && err.message.includes('not found')) {
+        return res.status(404).json({ error: err.message });
+      }
       return res.status(500).json({ error: err.message });
     }
 
-    const conversionRate = setting ? parseInt(setting.value) : 60;
-    const secondsToAdd = Math.floor(amountValue * conversionRate);
-
-    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      if (!unit) {
-        return res.status(404).json({ error: `Unit ${unitId} not found` });
-      }
-
-      const newSeconds = unit.remaining_seconds + secondsToAdd;
-      const newRevenue = unit.total_revenue + amountValue;
-      const newStatus = newSeconds > 0 ? 'Active' : unit.status;
-
-      db.run(
-        'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
-        [newSeconds, newRevenue, newStatus, new Date().toISOString(), unitId],
-        function(updateErr) {
-          if (updateErr) {
-            return res.status(500).json({ error: updateErr.message });
-          }
-
-          db.run(
-            'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
-            [unitId, amountValue, amountValue, new Date().toISOString(), 'coin'],
-            (txErr) => {
-              if (txErr) {
-                console.error('Error recording transaction:', txErr);
-              }
-            }
-          );
-
-          if (global.broadcast) {
-            global.broadcast({
-              type: 'COIN_INSERTED',
-              unit: {
-                id: unitId,
-                remaining_seconds: newSeconds,
-                total_revenue: newRevenue,
-                status: newStatus
-              }
-            });
-          }
-
-          return res.json({
-            message: 'Coin event processed',
-            unit_id: unitId,
-            amount: amountValue,
-            seconds_added: secondsToAdd,
-            new_remaining_seconds: newSeconds,
-            status: newStatus
-          });
-        }
-      );
+    return res.json({
+      message: 'Coin event processed',
+      ...result
     });
   });
 });
@@ -223,6 +411,7 @@ global.broadcast = (data) => {
     timestamp: new Date().toISOString(),
     broadcast_to: clients.size
   });
+        console.log(`   Coin Acceptor: ${COIN_ACCEPTOR_ENABLED ? `enabled (${COIN_PORT})` : 'disabled'}`);
   
   let sentCount = 0;
   clients.forEach((client) => {
@@ -330,6 +519,7 @@ process.on('SIGTERM', () => {
     console.log('Server closed');
     process.exit(0);
   });
+  clearSelectedUnit('shutdown');
 });
 
 startServer();
