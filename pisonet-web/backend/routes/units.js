@@ -282,19 +282,33 @@ router.get('/:id/hardware-log', (req, res) => {
 
 // PUT update unit details
 router.put('/:id', (req, res) => {
-  const { name, mac_address } = req.body;
+  const { name, mac_address, ip_address } = req.body;
   const unitId = req.params.id;
 
   const updates = [];
   const values = [];
 
-  if (name) {
+  if (typeof name !== 'undefined') {
     updates.push('name = ?');
     values.push(name);
   }
-  if (mac_address) {
+  if (typeof mac_address !== 'undefined') {
     updates.push('mac_address = ?');
-    values.push(mac_address);
+    values.push(mac_address || null);
+  }
+  if (typeof ip_address !== 'undefined') {
+    const trimmedIp = String(ip_address || '').trim();
+    if (trimmedIp) {
+      const ipv4Pattern = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+      if (!ipv4Pattern.test(trimmedIp)) {
+        return res.status(400).json({ error: 'Invalid IPv4 address format' });
+      }
+      updates.push('ip_address = ?');
+      values.push(trimmedIp);
+    } else {
+      updates.push('ip_address = ?');
+      values.push(null);
+    }
   }
 
   if (updates.length === 0) {

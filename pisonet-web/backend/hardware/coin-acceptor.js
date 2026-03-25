@@ -14,7 +14,13 @@ class CoinAcceptor extends EventEmitter {
     this.portPath = options.portPath || this.detectCoinPort();
     this.baudRate = options.baudRate || 9600;
     this.coinValue = options.coinValue || 1; // 1 peso per pulse
-    this.debounceMs = options.debounceMs || 50; // Debounce time
+    // Ignore duplicate/noise pulses that arrive unrealistically close together.
+    this.pulseDebounceMs = options.debounceMs || 8;
+    // Wait this long after last pulse before finalizing the denomination.
+    this.settleMs = options.settleMs || 120;
+    // auto: try decode denomination value from payload, fallback to pulse counting.
+    // pulse: always count pulses. value: always decode denomination value.
+    this.payloadMode = options.payloadMode || 'auto';
     
     // State
     this.port = null;
@@ -22,6 +28,33 @@ class CoinAcceptor extends EventEmitter {
     this.pulseCount = 0;
     this.lastPulseTime = 0;
     this.debounceTimer = null;
+  }
+
+  decodeDenominationFromPayload(data) {
+    if (!Buffer.isBuffer(data) || data.length === 0) {
+      return null;
+    }
+
+    const trimmed = data.toString('utf8').trim();
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      const value = parseInt(trimmed, 10);
+      return Number.isNaN(value) ? null : value;
+    }
+
+    // Common single-byte formats:
+    // 0x31..0x39 => ASCII '1'..'9'
+    // 0x01..0x64 => raw denomination value (1,5,10,20,...)
+    if (data.length === 1) {
+      const b = data[0];
+      if (b >= 0x31 && b <= 0x39) {
+        return b - 0x30;
+      }
+      if (b >= 1 && b <= 100) {
+        return b;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -105,23 +138,28 @@ class CoinAcceptor extends EventEmitter {
       // Pulse-based coin acceptors typically send HIGH/LOW signals
       // Each pulse = 1 coin
       const now = Date.now();
-      
-      // Debounce: Ignore pulses within debounce window
-      if (now - this.lastPulseTime < this.debounceMs) {
-        return;
-      }
-      
       this.lastPulseTime = now;
-      this.pulseCount++;
+      let pulseIncrement = 1;
+      const decodedValue = this.decodeDenominationFromPayload(data);
+
+      if (this.payloadMode === 'value' || (this.payloadMode === 'auto' && decodedValue !== null && decodedValue > 1)) {
+        // Device sent denomination value directly (e.g. 1, 5, 10, 20).
+        pulseIncrement = Math.max(1, Math.round(decodedValue / this.coinValue));
+      } else {
+        // Some USB-serial adapters batch pulses into one packet.
+        pulseIncrement = Buffer.isBuffer(data) && data.length > 0 ? data.length : 1;
+      }
+
+      this.pulseCount += pulseIncrement;
       
-      console.log(`Coin pulse detected (count: ${this.pulseCount})`);
+      console.log(`Coin pulse detected (count: ${this.pulseCount}, bytes: ${Buffer.isBuffer(data) ? data.toString('hex') : 'n/a'})`);
       
       // Clear existing debounce timer
       if (this.debounceTimer) {
         clearTimeout(this.debounceTimer);
       }
       
-      // Wait for debounce period, then emit coin event
+      // Wait for pulse train to settle, then emit coin event
       this.debounceTimer = setTimeout(() => {
         const coins = this.pulseCount;
         const amount = coins * this.coinValue;
@@ -136,7 +174,7 @@ class CoinAcceptor extends EventEmitter {
         
         // Reset pulse count
         this.pulseCount = 0;
-      }, this.debounceMs);
+      }, this.settleMs);
     });
   }
 

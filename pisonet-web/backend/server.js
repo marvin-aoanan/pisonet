@@ -2,7 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
 const http = require('http');
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const ENV_PATH = path.join(__dirname, '.env');
+require('dotenv').config({ path: ENV_PATH });
 const CoinAcceptor = require('./hardware/coin-acceptor');
 
 const db = require('./database');
@@ -23,6 +26,8 @@ const COIN_PORT = process.env.SERIAL_PORT || '/dev/ttyUSB0';
 const COIN_BAUD_RATE = parseInt(process.env.BAUD_RATE || '9600', 10);
 const COIN_VALUE = parseFloat(process.env.COIN_VALUE || '1');
 const COIN_DEBOUNCE_MS = parseInt(process.env.COIN_DEBOUNCE_MS || process.env.COIN_PULSE_THRESHOLD || '50', 10);
+const COIN_SETTLE_MS = parseInt(process.env.COIN_SETTLE_MS || '120', 10);
+const COIN_PAYLOAD_MODE = (process.env.COIN_PAYLOAD_MODE || 'auto').toLowerCase();
 const SELECTION_TIMEOUT_MS = parseInt(process.env.SELECTION_TIMEOUT_MS || '30000', 10);
 
 let coinAcceptor = null;
@@ -159,7 +164,9 @@ async function initializeCoinAcceptor() {
       portPath: COIN_PORT,
       baudRate: COIN_BAUD_RATE,
       coinValue: COIN_VALUE,
-      debounceMs: COIN_DEBOUNCE_MS
+      debounceMs: COIN_DEBOUNCE_MS,
+      settleMs: COIN_SETTLE_MS,
+      payloadMode: COIN_PAYLOAD_MODE
     });
 
     coinAcceptor.on('connected', () => {
@@ -452,6 +459,9 @@ async function startServer() {
     process.exit(1);
   }
 
+  // Initialize hardware listeners before serving requests so serial devices are opened early.
+  await initializeCoinAcceptor();
+
   countdownTimer = setInterval(() => {
     db.all('SELECT * FROM units WHERE remaining_seconds > 0', [], (err, units) => {
       if (err) {
@@ -502,6 +512,8 @@ async function startServer() {
     console.log('🚀 PisoNet Backend Server Started');
     console.log(`   Port: ${PORT}`);
     console.log(`   Environment: ${NODE_ENV}`);
+    console.log(`   Env File: ${ENV_PATH} (exists: ${fs.existsSync(ENV_PATH)})`);
+    console.log(`   Coin Env: enabled=${process.env.COIN_ACCEPTOR_ENABLED || 'undefined'}, port=${process.env.SERIAL_PORT || 'undefined'}, baud=${process.env.BAUD_RATE || 'undefined'}`);
     console.log(`   Database: ${process.env.DATABASE_PATH || './pisonet.db'}`);
     console.log(`   CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
     console.log(`   WebSocket: ws://0.0.0.0:${PORT}`);

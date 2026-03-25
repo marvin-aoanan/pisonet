@@ -145,10 +145,18 @@ function initializeDatabase() {
         remaining_seconds INTEGER DEFAULT 0,
         total_revenue REAL DEFAULT 0,
         mac_address TEXT,
+        ip_address TEXT,
         last_status_update TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Backward-compatible migration for existing databases created before ip_address existed.
+    db.run('ALTER TABLE units ADD COLUMN ip_address TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.ip_address column:', err);
+      }
+    });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
