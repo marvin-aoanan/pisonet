@@ -34,6 +34,12 @@ curl http://192.168.1.10:8080/timer-overlay.py -o timer-overlay.py
 python timer-overlay.py --unit=1 --server=192.168.1.10
 ```
 
+With custom shutdown warning grace period:
+
+```bash
+python timer-overlay.py --unit=1 --server=192.168.1.10 --grace=60
+```
+
 Replace:
 - `--unit=1` with the PC number (1, 2, 3... up to 10)
 - `--server=192.168.1.10` with your Management PC's IP address
@@ -124,6 +130,9 @@ launchctl load ~/Library/LaunchAgents/com.pisonet.timer.plist
   - Green: Normal (> 1 minute)
   - Orange: Warning (≤ 1 minute)
   - Red: Critical (≤ 10 seconds)
+✅ **Auto-lock at zero** - Locks the client PC as soon as session time reaches zero
+✅ **60-second shutdown grace** - Starts a shutdown warning countdown after lock
+✅ **Shutdown cancel on new coins** - If more time is added during grace period, pending shutdown is aborted
 ✅ **Connection indicator** - Green dot = connected, Red dot = disconnected
 ✅ **Minimal UI** - Clean, unobtrusive design
 
