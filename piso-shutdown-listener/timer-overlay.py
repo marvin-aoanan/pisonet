@@ -16,6 +16,10 @@ import os
 import urllib.request
 import urllib.error
 
+if sys.platform == 'win32':
+    import ctypes
+    from ctypes import wintypes
+
 try:
     import websocket
 except ImportError:
@@ -33,6 +37,8 @@ class TimerOverlay:
         self.remaining_seconds = 0
         self.shutdown_grace_seconds = shutdown_grace_seconds
         self.warning_seconds_left = shutdown_grace_seconds
+        self.warning_threshold_seconds = 120
+        self.critical_threshold_seconds = 60
         self.connected = False
         self.ws = None
         self.os_lock = os_lock
@@ -48,6 +54,7 @@ class TimerOverlay:
         self.pre_fullscreen_geometry = None
         self.flash_job = None
         self.flash_state = False
+        self.base_alpha = 0.90
         self.minimize_btn_visible = True
         self.password_prompt_active = False
         self.lock_layout_active = False
@@ -57,31 +64,38 @@ class TimerOverlay:
         self.background_source_image = None
         self.background_use_pillow = False
         self.background_refresh_job = None
+        self.key_block_active = False
+        self.key_hook_handle = None
+        self.key_hook_proc = None
         
         # Create main window
         self.root = tk.Tk()
         self.root.title(f"PC {unit_id} Timer")
         self.is_closing = False
+
+        # Install a global keyboard hook on Windows. The hook only blocks keys
+        # while key_block_active is True (during lock mode).
+        self.install_windows_key_hook()
         
         # Window configuration
         self.root.attributes('-topmost', True)  # Always on top
         self.root.overrideredirect(True)  # Remove title bar and borders (headless overlay)
         
         # Set window size and position (top-right corner)
-        window_width = 280
-        window_height = 160
+        window_width = 252
+        window_height = 136
         self.default_window_width = window_width
         self.default_window_height = window_height
-        self.low_time_window_width = 320
-        self.low_time_window_height = 200
+        self.low_time_window_width = window_width
+        self.low_time_window_height = window_height
         screen_width = self.root.winfo_screenwidth()
         x_position = screen_width - window_width - 20
         y_position = 20
         
         self.root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
         self.default_geometry = f"{window_width}x{window_height}+{x_position}+{y_position}"
-        self.warning_window_width = 360
-        self.warning_window_height = 230
+        self.warning_window_width = window_width
+        self.warning_window_height = window_height
         self.pre_fullscreen_geometry = self.default_geometry
         self.last_geometry = self.default_geometry
         self.minimized_geometry = self.default_geometry
@@ -94,10 +108,10 @@ class TimerOverlay:
 
         # Allow normal close behavior while debugging
         self.root.protocol('WM_DELETE_WINDOW', self.close_window)
-        self.root.bind('<Alt-F4>', self.close_window)
-        self.root.bind('<Control-w>', self.close_window)
+        self.root.bind('<Alt-F4>', self.handle_close_shortcut)
+        self.root.bind('<Control-w>', self.handle_close_shortcut)
         self.root.bind('<Control-q>', self.handle_unlock_shortcut)
-        self.root.bind('<Command-w>', self.close_window)
+        self.root.bind('<Command-w>', self.handle_close_shortcut)
         self.root.bind('<Command-q>', self.close_window)
         self.root.bind('<Escape>', self.close_window)
         
@@ -110,6 +124,7 @@ class TimerOverlay:
         self.fg_critical = '#ff0000'
         
         self.root.configure(bg=self.bg_normal)
+        self.root.attributes('-alpha', self.base_alpha)
 
         # Optional background image for a themed UI.
         self.setup_background_image()
@@ -124,26 +139,200 @@ class TimerOverlay:
         # Start local countdown
         self.countdown_thread = threading.Thread(target=self.local_countdown, daemon=True)
         self.countdown_thread.start()
+
+    def install_windows_key_hook(self):
+        if sys.platform != 'win32':
+            return
+
+        try:
+            user32 = ctypes.WinDLL('user32', use_last_error=True)
+
+            wh_keyboard_ll = 13
+            wm_keydown = 0x0100
+            wm_syskeydown = 0x0104
+
+            vk_tab = 0x09
+            vk_escape = 0x1B
+            vk_f4 = 0x73
+            vk_w = 0x57
+            vk_lwin = 0x5B
+            vk_rwin = 0x5C
+            vk_menu = 0x12
+            vk_lmenu = 0xA4
+            vk_rmenu = 0xA5
+            vk_control = 0x11
+            vk_lcontrol = 0xA2
+            vk_rcontrol = 0xA3
+
+            ulong_ptr = getattr(wintypes, 'ULONG_PTR', ctypes.c_size_t)
+            lresult_t = ctypes.c_ssize_t
+
+            class KBDLLHOOKSTRUCT(ctypes.Structure):
+                _fields_ = [
+                    ('vkCode', wintypes.DWORD),
+                    ('scanCode', wintypes.DWORD),
+                    ('flags', wintypes.DWORD),
+                    ('time', wintypes.DWORD),
+                    ('dwExtraInfo', ulong_ptr),
+                ]
+
+            low_level_keyboard_proc = ctypes.WINFUNCTYPE(
+                lresult_t,
+                ctypes.c_int,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            )
+
+            user32.SetWindowsHookExW.argtypes = [
+                ctypes.c_int,
+                low_level_keyboard_proc,
+                wintypes.HANDLE,
+                wintypes.DWORD,
+            ]
+            user32.SetWindowsHookExW.restype = wintypes.HANDLE
+            user32.CallNextHookEx.argtypes = [
+                wintypes.HANDLE,
+                ctypes.c_int,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            ]
+            user32.CallNextHookEx.restype = lresult_t
+            user32.UnhookWindowsHookEx.argtypes = [wintypes.HANDLE]
+            user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+
+            def is_pressed(vk_code):
+                return bool(user32.GetAsyncKeyState(vk_code) & 0x8000)
+
+            def callback(n_code, w_param, l_param):
+                lock_mode_active = self.warning_active and not self.admin_unlocked
+                if n_code >= 0 and lock_mode_active and w_param in (wm_keydown, wm_syskeydown):
+                    kb = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                    vk_code = kb.vkCode
+
+                    llkhf_altdown = 0x20
+                    alt_down = bool(kb.flags & llkhf_altdown) or is_pressed(vk_menu) or is_pressed(vk_lmenu) or is_pressed(vk_rmenu)
+                    ctrl_down = is_pressed(vk_control) or is_pressed(vk_lcontrol) or is_pressed(vk_rcontrol)
+
+                    # Block Windows key presses.
+                    if vk_code in (vk_lwin, vk_rwin):
+                        return 1
+
+                    # Block Alt+Tab, Alt+F4, and Alt+Esc.
+                    if alt_down and vk_code in (vk_tab, vk_f4, vk_escape):
+                        return 1
+
+                    # Block Ctrl+W and Ctrl+Esc.
+                    if ctrl_down and vk_code in (vk_w, vk_escape):
+                        return 1
+
+                return user32.CallNextHookEx(None, n_code, w_param, l_param)
+
+            self.key_hook_proc = low_level_keyboard_proc(callback)
+            self.key_hook_handle = user32.SetWindowsHookExW(
+                wh_keyboard_ll,
+                self.key_hook_proc,
+                None,
+                0,
+            )
+
+            if not self.key_hook_handle:
+                error_code = ctypes.get_last_error()
+                print(
+                    'Warning: failed to install keyboard hook; lock hotkeys remain enabled '
+                    f'(WinError={error_code}).'
+                )
+            else:
+                print('Windows lock keyboard hook installed.')
+        except Exception as error:
+            self.key_hook_handle = None
+            self.key_hook_proc = None
+            print(f"Warning: keyboard hook unavailable: {error}")
+
+    def uninstall_windows_key_hook(self):
+        if sys.platform != 'win32':
+            return
+
+        if self.key_hook_handle is None:
+            return
+
+        try:
+            ctypes.windll.user32.UnhookWindowsHookEx(self.key_hook_handle)
+        except Exception as error:
+            print(f"Warning: failed to remove keyboard hook: {error}")
+        finally:
+            self.key_hook_handle = None
+            self.key_hook_proc = None
+
+    def enable_lock_key_block(self):
+        if sys.platform != 'win32':
+            return
+        self.key_block_active = True
+
+    def disable_lock_key_block(self):
+        if sys.platform != 'win32':
+            return
+        self.key_block_active = False
+
+    def handle_close_shortcut(self, event=None):
+        # During lock mode, ignore close shortcuts even if global hook is unavailable.
+        if self.warning_active and not self.admin_unlocked:
+            return 'break'
+        return self.close_window(event)
+
+    def pick_font_family(self, preferred_families, fallback_family):
+        """Pick the first available family from preferred list, else fallback."""
+        try:
+            available = {name.lower(): name for name in tkfont.families(self.root)}
+            for family in preferred_families:
+                found = available.get(family.lower())
+                if found:
+                    return found
+        except Exception:
+            pass
+        return fallback_family
         
     def setup_ui(self):
+        tech_display_font = self.pick_font_family(
+            [
+                'DS-Digital',
+                'Digital-7',
+                'DSEG7 Classic',
+                'Orbitron',
+                'Eurostile',
+                'OCR A Extended',
+                'Consolas',
+            ],
+            'Courier New'
+        )
+        tech_ui_font = self.pick_font_family(
+            [
+                'Orbitron',
+                'Rajdhani',
+                'Bahnschrift',
+                'Segoe UI',
+            ],
+            'Arial'
+        )
+
         # PC number label
-        pc_label_font = tkfont.Font(family='Arial', size=14, weight='bold')
-        status_font = tkfont.Font(family='Arial', size=10)
-        self.timer_font_normal = tkfont.Font(family='Courier New', size=42, weight='bold')
+        pc_label_font = tkfont.Font(family=tech_ui_font, size=14, weight='bold')
+        status_font = tkfont.Font(family=tech_ui_font, size=10)
+        self.timer_font_normal = tkfont.Font(family=tech_display_font, size=29, weight='bold')
         self.pc_font_normal = pc_label_font
-        self.pc_font_lock = tkfont.Font(family='Arial', size=64, weight='bold')
-        self.timer_font_lock = tkfont.Font(family='Courier New', size=44, weight='bold')
-        self.timer_font_minimized = tkfont.Font(family='Courier New', size=12, weight='bold')
+        self.pc_font_lock = tkfont.Font(family=tech_ui_font, size=64, weight='bold')
+        self.timer_font_lock = tkfont.Font(family=tech_display_font, size=44, weight='bold')
+        self.timer_font_minimized = tkfont.Font(family=tech_display_font, size=12, weight='bold')
         self.minimize_btn_font_normal = tkfont.Font(size=18, weight='bold')
         self.minimize_btn_font_minimized = self.minimize_btn_font_normal
+        self.pc_label_text = f"PC {self.unit_id}"
         self.pc_label = tk.Label(
             self.root,
-            text=f"PC {self.unit_id}",
+            text=self.pc_label_text,
             font=self.pc_font_normal,
             fg='#4CAF50',
             bg=self.bg_normal
         )
-        self.pc_label.pack(pady=(10, 5))
+        self.pc_label.pack(pady=(2, 0))
         
         # Timer display
         self.timer_label = tk.Label(
@@ -153,7 +342,7 @@ class TimerOverlay:
             fg=self.fg_normal,
             bg=self.bg_normal
         )
-        self.timer_label.pack(pady=5)
+        self.timer_label.pack(pady=(0, 0))
         
         # Status label
         self.status_label = tk.Label(
@@ -163,20 +352,21 @@ class TimerOverlay:
             fg='#888888',
             bg=self.bg_normal
         )
-        self.status_label.pack(pady=5)
+        self.status_label.pack(pady=(0, 0))
 
         # Warning label for shutdown countdown
-        warning_font = tkfont.Font(family='Arial', size=10, weight='bold')
+        self.warning_font_normal = tkfont.Font(family=tech_ui_font, size=10, weight='bold')
+        self.warning_font_lock = tkfont.Font(family=tech_ui_font, size=13, weight='bold')
         self.warning_label = tk.Label(
             self.root,
             text="",
-            font=warning_font,
+            font=self.warning_font_normal,
             fg='#ffcc00',
             bg=self.bg_normal,
-            wraplength=240,
+            wraplength=228,
             justify='center'
         )
-        self.warning_label.pack(pady=(0, 5), padx=8, fill='x')
+        self.warning_label.pack(pady=(0, 0), padx=3, fill='x')
 
         # Spacers used only during lock layout for vertical centering.
         self.top_spacer = tk.Frame(self.root, bg=self.bg_normal, height=1)
@@ -190,7 +380,7 @@ class TimerOverlay:
             fg='#ff0000',
             bg=self.bg_normal
         )
-        self.connection_indicator.place(x=10, y=10)
+        self.connection_indicator.place(x=10, y=10, relx=0.0, rely=0.0, anchor='nw')
         
         # Minimize button
         self.minimize_btn = tk.Label(
@@ -199,9 +389,11 @@ class TimerOverlay:
             font=self.minimize_btn_font_normal,
             fg='#666666',
             bg=self.bg_normal,
+            width=2,
+            anchor='center',
             cursor='hand2'
         )
-        self.minimize_btn.place(x=252, y=2)
+        self.minimize_btn.place(relx=1.0, x=-8, y=2, rely=0.0, anchor='ne')
         self.minimize_btn.bind('<Button-1>', self.minimize_window)
 
     def setup_background_image(self):
@@ -215,14 +407,12 @@ class TimerOverlay:
         pil_available = False
         pil_image = None
         pil_image_tk = None
-        pil_image_enhance = None
         pil_image_ops = None
 
         try:
-            pil_module = __import__('PIL', fromlist=['Image', 'ImageTk', 'ImageEnhance', 'ImageOps'])
+            pil_module = __import__('PIL', fromlist=['Image', 'ImageTk', 'ImageOps'])
             pil_image = pil_module.Image
             pil_image_tk = pil_module.ImageTk
-            pil_image_enhance = pil_module.ImageEnhance
             pil_image_ops = pil_module.ImageOps
             pil_available = True
         except Exception:
@@ -234,8 +424,7 @@ class TimerOverlay:
                 self.background_use_pillow = True
                 screen_size = (self.root.winfo_screenwidth(), self.root.winfo_screenheight())
                 fitted = pil_image_ops.fit(self.background_source_image, screen_size, method=pil_image.Resampling.LANCZOS)
-                darkened = pil_image_enhance.Brightness(fitted).enhance(0.42)
-                self.background_image = pil_image_tk.PhotoImage(darkened)
+                self.background_image = pil_image_tk.PhotoImage(fitted)
             else:
                 self.background_image = tk.PhotoImage(file=self.background_image_path)
                 self.background_use_pillow = False
@@ -244,12 +433,9 @@ class TimerOverlay:
             # Hidden by default; shown only during locked state.
             self.background_label.place_forget()
             if pil_available:
-                print(f"Locked background image loaded (dark tint): {self.background_image_path}")
+                print(f"Locked background image loaded: {self.background_image_path}")
             else:
-                print(
-                    "Locked background image loaded (no tint: install Pillow for dark overlay): "
-                    f"{self.background_image_path}"
-                )
+                print(f"Locked background image loaded: {self.background_image_path}")
         except Exception as error:
             self.background_image = None
             self.background_label = None
@@ -275,17 +461,15 @@ class TimerOverlay:
             return
 
         try:
-            pil_module = __import__('PIL', fromlist=['Image', 'ImageTk', 'ImageEnhance', 'ImageOps'])
+            pil_module = __import__('PIL', fromlist=['Image', 'ImageTk', 'ImageOps'])
             pil_image = pil_module.Image
             pil_image_tk = pil_module.ImageTk
-            pil_image_enhance = pil_module.ImageEnhance
             pil_image_ops = pil_module.ImageOps
 
             width = target_width
             height = target_height
             fitted = pil_image_ops.fit(self.background_source_image, (width, height), method=pil_image.Resampling.LANCZOS)
-            darkened = pil_image_enhance.Brightness(fitted).enhance(0.42)
-            self.background_image = pil_image_tk.PhotoImage(darkened)
+            self.background_image = pil_image_tk.PhotoImage(fitted)
             self.background_label.configure(image=self.background_image)
         except Exception as error:
             print(f"Failed to refresh lock background: {error}")
@@ -342,10 +526,10 @@ class TimerOverlay:
         self.warning_label.pack_forget()
         self.warning_label.place_forget()
 
-        self.pc_label.pack(pady=(10, 5))
-        self.timer_label.pack(pady=5)
-        self.status_label.pack(pady=5)
-        self.warning_label.pack(pady=(0, 5), padx=8, fill='x')
+        self.pc_label.pack(pady=(2, 0))
+        self.timer_label.pack(pady=(0, 0))
+        self.status_label.pack(pady=(0, 0))
+        self.warning_label.pack(pady=(0, 0), padx=3, fill='x')
 
     def set_lock_layout(self):
         if self.lock_layout_active:
@@ -418,6 +602,8 @@ class TimerOverlay:
                 self.ws.close()
             except Exception:
                 pass
+        self.disable_lock_key_block()
+        self.uninstall_windows_key_hook()
         self.root.destroy()
         return "break"
 
@@ -431,15 +617,26 @@ class TimerOverlay:
         y = self.root.winfo_y()
         self.minimized_geometry = f"190x36+{x}+{y}"
 
+        # Hide all non-timer widgets across both pack/place layouts.
         self.pc_label.pack_forget()
+        self.pc_label.place_forget()
         self.status_label.pack_forget()
+        self.status_label.place_forget()
         self.warning_label.pack_forget()
-        self.connection_indicator.place(x=6, y=9)
+        self.warning_label.place_forget()
+        self.connection_indicator.place(x=12, y=18, relx=0.0, rely=0.0, anchor='center')
+        self.pc_label.configure(text="")
 
         self.minimize_btn.configure(text="+", font=self.minimize_btn_font_normal)
-        self.minimize_btn.place(x=162, y=2)
+        self.minimize_btn.place(relx=1.0, x=-8, y=18, rely=0.0, anchor='e')
+        self.timer_label.place_forget()
+        self.timer_label.pack_forget()
         self.timer_label.configure(font=self.timer_font_minimized)
-        self.timer_label.pack_configure(pady=4)
+        if self.warning_active:
+            self.timer_label.configure(text=self.format_time(self.warning_seconds_left))
+        else:
+            self.timer_label.configure(text=self.format_time(self.remaining_seconds))
+        self.timer_label.place(relx=0.5, y=18, rely=0.0, anchor='center')
         self.root.geometry(self.minimized_geometry)
         self.root.lift()
         self.is_minimized = True
@@ -454,11 +651,12 @@ class TimerOverlay:
             self.set_lock_layout()
         else:
             self.set_default_layout()
-        self.connection_indicator.place(x=10, y=10)
+        self.connection_indicator.place(x=10, y=10, relx=0.0, rely=0.0, anchor='nw')
 
+        self.pc_label.configure(text=self.pc_label_text)
         self.timer_label.configure(font=self.timer_font_normal)
         self.minimize_btn.configure(text="-", font=self.minimize_btn_font_normal)
-        self.minimize_btn.place(x=252, y=2)
+        self.minimize_btn.place(relx=1.0, x=-8, y=2, rely=0.0, anchor='ne')
         self.root.lift()
         self.is_minimized = False
 
@@ -476,13 +674,13 @@ class TimerOverlay:
             return
 
         if not self.pc_label.winfo_manager():
-            self.pc_label.pack(pady=(10, 5))
+            self.pc_label.pack(pady=(2, 0))
         if not self.timer_label.winfo_manager():
-            self.timer_label.pack(pady=5)
+            self.timer_label.pack(pady=(0, 0))
         if not self.status_label.winfo_manager():
-            self.status_label.pack(pady=5)
+            self.status_label.pack(pady=(0, 0))
         if not self.warning_label.winfo_manager():
-            self.warning_label.pack(pady=(0, 5), padx=8, fill='x')
+            self.warning_label.pack(pady=(0, 0), padx=3, fill='x')
 
     def set_normal_window_size(self):
         if self.is_minimized or self.is_fullscreen or self.warning_active:
@@ -512,10 +710,10 @@ class TimerOverlay:
 
         if self.is_minimized:
             self.minimize_btn.configure(text="+", font=self.minimize_btn_font_normal)
-            self.minimize_btn.place(x=162, y=2)
+            self.minimize_btn.place(relx=1.0, x=-8, y=18, rely=0.0, anchor='e')
         else:
             self.minimize_btn.configure(text="-", font=self.minimize_btn_font_normal)
-            self.minimize_btn.place(x=252, y=2)
+            self.minimize_btn.place(relx=1.0, x=-8, y=2, rely=0.0, anchor='ne')
 
         self.minimize_btn_visible = True
 
@@ -585,7 +783,14 @@ class TimerOverlay:
 
     def flash_window(self):
         self.flash_state = not self.flash_state
-        self.root.attributes('-alpha', 1.0 if self.flash_state else 0.78)
+
+        # Flash text only (no window alpha/background flashing).
+        if self.remaining_seconds > 0 and self.remaining_seconds <= self.warning_threshold_seconds and not self.warning_active:
+            if self.flash_state:
+                self.timer_label.configure(fg=self.fg_critical)
+            else:
+                self.timer_label.configure(fg=self.fg_warning)
+
         self.flash_job = self.root.after(350, self.flash_window)
 
     def start_window_flash(self):
@@ -599,7 +804,8 @@ class TimerOverlay:
         if self.flash_job is not None:
             self.root.after_cancel(self.flash_job)
             self.flash_job = None
-        self.root.attributes('-alpha', 1.0)
+        self.flash_state = False
+        self.root.attributes('-alpha', self.base_alpha)
 
     def enforce_lockdown_ui(self):
         if not self.warning_active:
@@ -820,6 +1026,7 @@ class TimerOverlay:
             return
 
         self.warning_active = True
+        self.enable_lock_key_block()
         self.warning_seconds_left = self.shutdown_grace_seconds
         self.enter_lockdown_ui()
         self.lock_screen()
@@ -832,6 +1039,7 @@ class TimerOverlay:
             self.cancel_shutdown()
 
         self.warning_active = False
+        self.disable_lock_key_block()
         self.warning_seconds_left = self.shutdown_grace_seconds
         self.lock_triggered = False
         self.shutdown_triggered = False
@@ -840,13 +1048,13 @@ class TimerOverlay:
     def update_display(self):
         """Update the timer display (called from main thread)"""
         # Ensure warning and critical messages are visible by leaving compact mode.
-        if self.is_minimized and (self.warning_active or self.remaining_seconds <= 60):
+        if self.is_minimized and (self.warning_active or self.remaining_seconds <= self.warning_threshold_seconds):
             self.restore_from_minimized()
 
         self.ensure_main_widgets_visible()
 
         is_zero_or_expired = self.remaining_seconds <= 0 and not self.admin_unlocked
-        should_flash = self.remaining_seconds > 0 and self.remaining_seconds <= 60
+        should_flash = self.remaining_seconds > 0 and self.remaining_seconds <= self.warning_threshold_seconds
         if should_flash:
             self.start_window_flash()
         else:
@@ -862,7 +1070,29 @@ class TimerOverlay:
         else:
             self.timer_label.config(text=self.format_time(self.remaining_seconds))
 
-        if 0 < self.remaining_seconds <= 60:
+        if self.is_minimized:
+            # Preserve compact timer-only view during per-second updates.
+            self.pc_label.configure(text="")
+            self.connection_indicator.place(x=12, y=18, relx=0.0, rely=0.0, anchor='center')
+            self.timer_label.place_forget()
+            self.timer_label.pack_forget()
+            self.timer_label.configure(font=self.timer_font_minimized)
+            self.timer_label.place(relx=0.5, y=18, rely=0.0, anchor='center')
+            self.minimize_btn.place(relx=1.0, x=-8, y=18, rely=0.0, anchor='e')
+
+            # Keep connection indicator accurate while skipping full layout/style updates.
+            if self.connected:
+                self.connection_indicator.config(fg='#00ff00')
+            else:
+                self.connection_indicator.config(fg='#ff0000')
+            return
+
+        # Reset relative placement options after leaving minimized mode.
+        self.connection_indicator.place(x=10, y=10, relx=0.0, rely=0.0, anchor='nw')
+        if self.minimize_btn_visible:
+            self.minimize_btn.place(relx=1.0, x=-8, y=2, rely=0.0, anchor='ne')
+
+        if 0 < self.remaining_seconds <= self.warning_threshold_seconds:
             self.set_low_time_window_size()
         elif not self.is_lockdown_ui:
             self.set_normal_window_size()
@@ -877,6 +1107,7 @@ class TimerOverlay:
             self.status_label.configure(text="SESSION LOCKED", fg=self.fg_critical, bg=self.bg_critical)
             self.warning_label.configure(
                 text=f"Please insert coin to unlock this PC or it will Shutdown in {self.warning_seconds_left}s.",
+                font=self.warning_font_lock,
                 wraplength=min(520, max(220, int(self.root.winfo_width() * 0.45)))
             )
             self.connection_indicator.configure(bg=self.bg_critical)
@@ -890,7 +1121,7 @@ class TimerOverlay:
             self.pc_label.configure(bg=self.bg_warning, font=self.pc_font_normal)
             self.timer_label.configure(fg=self.fg_warning, bg=self.bg_warning, font=self.timer_font_normal)
             self.status_label.configure(text="ADMIN UNLOCK", fg='#ffffff', bg=self.bg_warning)
-            self.warning_label.configure(text="Admin override active. Press minimize if needed, or add time to resume normal session.", fg='#ffcc00', bg=self.bg_warning)
+            self.warning_label.configure(text="Admin override active. Press minimize if needed, or add time to resume normal session.", fg='#ffcc00', bg=self.bg_warning, font=self.warning_font_normal)
             self.connection_indicator.configure(bg=self.bg_warning)
             self.top_spacer.configure(bg=self.bg_warning)
             self.bottom_spacer.configure(bg=self.bg_warning)
@@ -902,11 +1133,11 @@ class TimerOverlay:
             self.pc_label.configure(bg=self.bg_critical, font=self.pc_font_normal)
             self.timer_label.configure(fg=self.fg_critical, bg=self.bg_critical, font=self.timer_font_normal)
             self.status_label.configure(text="TIME EXPIRED", fg=self.fg_critical, bg=self.bg_critical)
-            self.warning_label.configure(text="Locking screen...", fg='#ffcc00', bg=self.bg_critical)
+            self.warning_label.configure(text="Locking screen...", fg='#ffcc00', bg=self.bg_critical, font=self.warning_font_normal)
             self.connection_indicator.configure(bg=self.bg_critical)
             self.top_spacer.configure(bg=self.bg_critical)
             self.bottom_spacer.configure(bg=self.bg_critical)
-        elif self.remaining_seconds <= 10:
+        elif self.remaining_seconds <= self.critical_threshold_seconds:
             self.exit_lockdown_ui()
             self.set_default_layout()
             self.hide_lock_background()
@@ -918,12 +1149,13 @@ class TimerOverlay:
                 text="Add time now to avoid lock and shutdown.",
                 fg='#ffcc00',
                 bg=self.bg_critical,
+                font=self.warning_font_normal,
                 wraplength=max(220, self.root.winfo_width() - 24)
             )
             self.connection_indicator.configure(bg=self.bg_critical)
             self.top_spacer.configure(bg=self.bg_critical)
             self.bottom_spacer.configure(bg=self.bg_critical)
-        elif self.remaining_seconds <= 60:
+        elif self.remaining_seconds <= self.warning_threshold_seconds:
             self.exit_lockdown_ui()
             self.set_default_layout()
             self.hide_lock_background()
@@ -935,6 +1167,7 @@ class TimerOverlay:
                 text="Time is almost up. Insert coin soon.",
                 fg='#ffcc00',
                 bg=self.bg_warning,
+                font=self.warning_font_normal,
                 wraplength=max(220, self.root.winfo_width() - 24)
             )
             self.connection_indicator.configure(bg=self.bg_warning)
@@ -948,7 +1181,7 @@ class TimerOverlay:
             self.pc_label.configure(bg=self.bg_normal, font=self.pc_font_normal)
             self.timer_label.configure(fg=self.fg_normal, bg=self.bg_normal, font=self.timer_font_normal)
             self.status_label.configure(text="Active Session", fg='#00ff00', bg=self.bg_normal)
-            self.warning_label.configure(text="", fg='#ffcc00', bg=self.bg_normal)
+            self.warning_label.configure(text="", fg='#ffcc00', bg=self.bg_normal, font=self.warning_font_normal)
             self.connection_indicator.configure(bg=self.bg_normal)
             self.top_spacer.configure(bg=self.bg_normal)
             self.bottom_spacer.configure(bg=self.bg_normal)
