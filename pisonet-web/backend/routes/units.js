@@ -148,6 +148,62 @@ router.post('/:id/add-time', (req, res) => {
   });
 });
 
+// POST adjust timer by minutes (admin control, supports negative values)
+router.post('/:id/adjust-time', (req, res) => {
+  const unitId = req.params.id;
+  const minutes = Number(req.body?.minutes);
+
+  if (!Number.isFinite(minutes) || minutes === 0) {
+    return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
+  }
+
+  const deltaSeconds = Math.round(minutes * 60);
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!unit) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+
+    const newSeconds = Math.max(0, (unit.remaining_seconds || 0) + deltaSeconds);
+    const newStatus = newSeconds > 0 ? 'Active' : 'Idle';
+
+    db.run(
+      'UPDATE units SET remaining_seconds = ?, status = ?, last_status_update = ? WHERE id = ?',
+      [newSeconds, newStatus, new Date().toISOString(), unitId],
+      (updateErr) => {
+        if (updateErr) {
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId, 10),
+              remaining_seconds: newSeconds,
+              total_revenue: unit.total_revenue,
+              status: newStatus
+            }
+          });
+        }
+
+        return res.json({
+          message: 'Timer adjusted successfully',
+          unit_id: parseInt(unitId, 10),
+          delta_minutes: minutes,
+          delta_seconds: deltaSeconds,
+          new_remaining_seconds: newSeconds,
+          status: newStatus
+        });
+      }
+    );
+  });
+});
+
 // POST create/start session
 router.post('/:id/session/start', (req, res) => {
   const unitId = req.params.id;

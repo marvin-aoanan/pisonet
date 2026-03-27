@@ -458,20 +458,34 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
                 <TableCell align="center">
                   <ButtonGroup variant="contained" size="small">
                     <Button 
-                      onClick={() => onAddTime(unit.id, 5)}
+                      color="warning"
+                      onClick={() => handleAction(unit.id, 'minus_15m', () => onAddTime(unit.id, -15))}
+                      disabled={loading === unit.id}
+                    >
+                      -15m
+                    </Button>
+                    <Button 
+                      color="warning"
+                      onClick={() => handleAction(unit.id, 'minus_5m', () => onAddTime(unit.id, -5))}
+                      disabled={loading === unit.id}
+                    >
+                      -5m
+                    </Button>
+                    <Button 
+                      onClick={() => handleAction(unit.id, 'plus_5m', () => onAddTime(unit.id, 5))}
                       disabled={loading === unit.id}
                     >
                       +5m
                     </Button>
                     <Button 
-                      onClick={() => onAddTime(unit.id, 15)}
+                      onClick={() => handleAction(unit.id, 'plus_15m', () => onAddTime(unit.id, 15))}
                       disabled={loading === unit.id}
                     >
                       +15m
                     </Button>
                     <Button 
                       color="error"
-                      onClick={() => onControl(unit.id, 'reset_timer')}
+                      onClick={() => handleAction(unit.id, 'reset_timer', () => onControl(unit.id, 'reset_timer'))}
                       disabled={loading === unit.id}
                     >
                       <ResetIcon fontSize="small" />

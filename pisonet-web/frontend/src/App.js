@@ -319,19 +319,19 @@ function App() {
     }
   };
 
-  // Handle add time (admin feature)
-  const handleAddTime = async (unitId, amount) => {
+  // Handle timer adjustment (admin feature)
+  const handleAddTime = async (unitId, minutes) => {
     try {
       await axios.post(
-        `${API_URL}/units/${unitId}/add-time`,
-        { amount, denomination: amount }
+        `${API_URL}/units/${unitId}/adjust-time`,
+        { minutes }
       );
-      setStatusMessage(`✅ Added ₱${amount} to PC ${unitId}`);
+      const direction = minutes > 0 ? 'Added' : 'Removed';
+      setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitId}`);
       fetchUnits();
-      fetchTotalRevenue();
     } catch (error) {
-      console.error('Error adding time:', error);
-      setStatusMessage('❌ Error adding time');
+      console.error('Error adjusting time:', error);
+      setStatusMessage('❌ Error adjusting time');
       throw error;
     }
   };

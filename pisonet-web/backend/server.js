@@ -226,19 +226,57 @@ async function initializeCoinAcceptor() {
 }
 
 // Middleware - CORS configuration
+const configuredOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5001'
+];
+
+if (process.env.FRONTEND_URL) {
+  defaultOrigins.push(process.env.FRONTEND_URL.trim());
+}
+
+const allowedOrigins = new Set([...defaultOrigins, ...configuredOrigins]);
+
+function isAllowedDevLanOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname;
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    const isPrivateIpv4 = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+    return (isLocalHost || isPrivateIpv4) && (port === '3000' || port === '5001');
+  } catch {
+    return false;
+  }
+}
+
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN ? 
-    process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : 
-    ['http://localhost:3000', 'http://localhost:5001', 'http://127.0.0.1:3000'],
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (process.env.CORS_ORIGIN === '*') {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.has(origin) || isAllowedDevLanOrigin(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
-
-// If CORS_ORIGIN is '*', use wildcard
-if (process.env.CORS_ORIGIN === '*') {
-  corsOptions.origin = '*';
-}
 
 app.use(cors(corsOptions));
 app.use(express.json());
