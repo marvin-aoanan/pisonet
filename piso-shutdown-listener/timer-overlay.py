@@ -67,6 +67,7 @@ class TimerOverlay:
         self.key_block_active = False
         self.key_hook_handle = None
         self.key_hook_proc = None
+        self.session_end_block_active = False
         
         # Create main window
         self.root = tk.Tk()
@@ -272,6 +273,40 @@ class TimerOverlay:
         if sys.platform != 'win32':
             return
         self.key_block_active = False
+
+    def set_windows_session_end_block(self, enabled):
+        if sys.platform != 'win32':
+            return
+
+        try:
+            user32 = ctypes.WinDLL('user32', use_last_error=True)
+            user32.ShutdownBlockReasonCreate.argtypes = [wintypes.HWND, wintypes.LPCWSTR]
+            user32.ShutdownBlockReasonCreate.restype = wintypes.BOOL
+            user32.ShutdownBlockReasonDestroy.argtypes = [wintypes.HWND]
+            user32.ShutdownBlockReasonDestroy.restype = wintypes.BOOL
+
+            hwnd = wintypes.HWND(self.root.winfo_id())
+            if enabled:
+                if self.session_end_block_active:
+                    return
+                reason = 'PisoNet session is locked. Unlock this PC before signing out.'
+                ok = user32.ShutdownBlockReasonCreate(hwnd, reason)
+                if ok:
+                    self.session_end_block_active = True
+                    print('Windows sign-out/shutdown blocked while lock mode is active.')
+                else:
+                    print(
+                        'Warning: failed to block sign-out/shutdown during lock mode '
+                        f'(WinError={ctypes.get_last_error()}).'
+                    )
+            else:
+                if not self.session_end_block_active:
+                    return
+                user32.ShutdownBlockReasonDestroy(hwnd)
+                self.session_end_block_active = False
+                print('Windows sign-out/shutdown block removed.')
+        except Exception as error:
+            print(f'Warning: session-end block unavailable: {error}')
 
     def handle_close_shortcut(self, event=None):
         # During lock mode, ignore close shortcuts even if global hook is unavailable.
@@ -602,6 +637,7 @@ class TimerOverlay:
                 self.ws.close()
             except Exception:
                 pass
+        self.set_windows_session_end_block(False)
         self.disable_lock_key_block()
         self.uninstall_windows_key_hook()
         self.root.destroy()
@@ -1026,6 +1062,7 @@ class TimerOverlay:
             return
 
         self.warning_active = True
+        self.set_windows_session_end_block(True)
         self.enable_lock_key_block()
         self.warning_seconds_left = self.shutdown_grace_seconds
         self.enter_lockdown_ui()
@@ -1039,6 +1076,7 @@ class TimerOverlay:
             self.cancel_shutdown()
 
         self.warning_active = False
+        self.set_windows_session_end_block(False)
         self.disable_lock_key_block()
         self.warning_seconds_left = self.shutdown_grace_seconds
         self.lock_triggered = False

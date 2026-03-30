@@ -114,3 +114,117 @@ Add to registry at `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\
 - Value: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 unlock-password=44`
 
 **Recommendation:** Use **Option 1** (Startup folder) for simplicity, or **Option 2** (Task Scheduler) if you need logging and error handling.
+
+## 10. Windows Client Lockdown Policy Checklist (Exact Paths)
+
+Goal: prevent users from easily signing out, shutting down, or escaping the timer overlay while client session is locked.
+
+Important:
+- `Ctrl + Alt + Del` itself cannot be disabled on normal Windows desktop editions.
+- Use a dedicated **standard (non-admin)** account for each client PC.
+- Apply these settings while signed in as an administrator.
+
+### A. Prepare Client Account (Required)
+1. Create/use a local client account (example: `PisoClient01`)
+2. Confirm account is in `Users` group only (not Administrators)
+3. Configure auto sign-in for that account if desired for kiosk flow
+
+### B. Local Group Policy (gpedit.msc)
+Open: `Win + R` -> `gpedit.msc`
+
+Apply these policies under **User Configuration** for the client user:
+
+1. Path: `User Configuration > Administrative Templates > Start Menu and Taskbar`
+   - `Remove and prevent access to the Shut Down, Restart, Sleep, and Hibernate commands` -> **Enabled**
+   - `Remove Logoff on the Start Menu` -> **Enabled**
+
+2. Path: `User Configuration > Administrative Templates > System > Ctrl+Alt+Del Options`
+   - `Remove Task Manager` -> **Enabled**
+   - `Remove Lock Computer` -> **Enabled**
+
+Apply these policies under **Computer Configuration**:
+
+3. Path: `Computer Configuration > Administrative Templates > System > Logon`
+   - `Hide entry points for Fast User Switching` -> **Enabled**
+
+4. Path: `Computer Configuration > Administrative Templates > Windows Components > Windows Logon Options`
+   - `Sign-in last interactive user automatically after a system-initiated restart` -> **Disabled** (optional, recommended)
+
+### C. Local Security Policy (secpol.msc)
+Open: `Win + R` -> `secpol.msc`
+
+1. Path: `Security Settings > Local Policies > User Rights Assignment > Shut down the system`
+   - Remove `Users`
+   - Keep `Administrators` only
+
+2. Path: `Security Settings > Local Policies > Security Options`
+   - `Shutdown: Allow system to be shut down without having to log on` -> **Disabled**
+
+### D. Apply and Verify
+1. Run (Admin CMD/PowerShell):
+
+```powershell
+gpupdate /force
+```
+
+2. Reboot the client PC
+3. Test as client user:
+   - Start menu has no Sign out/Shutdown entry points
+   - Task Manager is blocked
+   - Fast User Switching is hidden
+   - During overlay lock mode, attempted sign-out/shutdown is denied or restricted
+
+### E. Optional Hardening (Recommended)
+1. Disable access to command tools for client user:
+   - `User Configuration > Administrative Templates > System > Prevent access to the command prompt` -> **Enabled**
+   - `User Configuration > Administrative Templates > System > Don't run specified Windows applications` -> add tools you want blocked (for example `powershell.exe`, `cmd.exe`, `taskmgr.exe`)
+2. Use Assigned Access / kiosk mode if edition supports it
+3. Keep all admin credentials separate from client users
+
+### F. If Using Windows Home Edition
+`gpedit.msc` and `secpol.msc` are not fully available. Recommended approach:
+1. Upgrade client PCs to Pro for manageable policy control
+2. Or centrally enforce restrictions using MDM/domain tools
+
+## 11. Auto Re-Run If Timer Is Closed
+
+Yes, supported using a watchdog launcher.
+
+### A. Watchdog Script (Included)
+Use [piso-shutdown-listener/timer-watchdog.bat](piso-shutdown-listener/timer-watchdog.bat). It:
+1. Starts `dist\\timer-overlay.exe`
+2. Waits for it to exit
+3. Restarts it after a short delay
+4. Repeats forever
+
+Current startup wrapper [piso-shutdown-listener/timer-startup.bat](piso-shutdown-listener/timer-startup.bat) now launches the watchdog minimized.
+
+### B. Configure Per Client Using Environment Variables
+The watchdog now reads settings from environment variables (with defaults).
+
+Supported variables:
+1. `TIMER_UNIT` (default: `1`)
+2. `TIMER_SERVER` (default: `192.168.254.201`)
+3. `TIMER_UNLOCK_PASSWORD` (fallback: `PISONET_UNLOCK_PASSWORD`, then default `44`)
+4. `TIMER_WSPORT` (default: `5001`)
+5. `TIMER_GRACE` (default: `60`)
+6. `TIMER_BG_IMAGE` (default: `D:\bg-timer-locked.png`)
+
+Set them in [piso-shutdown-listener/timer-startup.bat](piso-shutdown-listener/timer-startup.bat) by uncommenting the provided `set` lines.
+
+Example:
+
+```batch
+set "TIMER_UNIT=3"
+set "TIMER_SERVER=192.168.254.210"
+set "TIMER_UNLOCK_PASSWORD=1234"
+set "TIMER_BG_IMAGE=D:\bg-timer-locked.png"
+```
+
+### C. Recommended Startup Method
+Put a shortcut to [piso-shutdown-listener/timer-startup.bat](piso-shutdown-listener/timer-startup.bat) in `shell:startup` for the client account.
+
+### D. Notes
+1. This relaunches after normal close, forced close, or app crash.
+2. If Windows signs out/restarts, watchdog also exits and will run again at next login via startup.
+3. To stop it intentionally, close the watchdog console window or kill `cmd.exe` instance running `timer-watchdog.bat` as admin.
