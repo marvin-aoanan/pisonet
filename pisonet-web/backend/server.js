@@ -130,6 +130,7 @@ function addCoinToUnit(unitId, amountValue, source = 'api', cb) {
           if (global.broadcast) {
             global.broadcast({
               type: 'COIN_INSERTED',
+              amount: amountValue,
               unit: {
                 id: unitId,
                 remaining_seconds: newSeconds,

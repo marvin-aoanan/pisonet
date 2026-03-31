@@ -16,12 +16,16 @@ import {
   ButtonGroup,
   Card,
   CardContent,
-  Grid
+  Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField
 } from '@mui/material';
 import {
   PowerSettingsNew as PowerIcon,
   Block as BlockIcon,
-  Delete as ResetIcon,
   AttachMoney as MoneyIcon,
   Computer as ComputerIcon,
   WrapText
@@ -37,6 +41,10 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
   const [loading, setLoading] = useState(null);
   const [dailyRevenue, setDailyRevenue] = useState([]);
   const [weekIndex, setWeekIndex] = useState(null);
+  const [timeDialogOpen, setTimeDialogOpen] = useState(false);
+  const [timeDialogType, setTimeDialogType] = useState(null);
+  const [timeDialogUnitId, setTimeDialogUnitId] = useState(null);
+  const [timeDialogAmount, setTimeDialogAmount] = useState('');
 
   const handleAction = async (unitId, action, callback) => {
     setLoading(unitId);
@@ -45,6 +53,37 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
     } finally {
       setLoading(null);
     }
+  };
+
+  const openTimeDialog = (unitId, type) => {
+    setTimeDialogUnitId(unitId);
+    setTimeDialogType(type);
+    setTimeDialogAmount('');
+    setTimeDialogOpen(true);
+  };
+
+  const closeTimeDialog = () => {
+    setTimeDialogOpen(false);
+    setTimeDialogUnitId(null);
+    setTimeDialogType(null);
+    setTimeDialogAmount('');
+  };
+
+  const handleTimeDialogConfirm = async () => {
+    const minutes = parseInt(timeDialogAmount, 10);
+    if (Number.isNaN(minutes) || minutes === 0) {
+      return;
+    }
+
+    setLoading(timeDialogUnitId);
+    try {
+      const finalAmount = timeDialogType === 'deduct' ? -minutes : minutes;
+      await onAddTime(timeDialogUnitId, finalAmount);
+    } finally {
+      setLoading(null);
+    }
+
+    closeTimeDialog();
   };
 
   const formatTime = (seconds) => {
@@ -461,40 +500,22 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   </ButtonGroup>
                 </TableCell>
                 <TableCell align="center">
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
-                    <ButtonGroup variant="contained" size="small">
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center', width: 180, mx: 'auto' }}>
+                    <ButtonGroup variant="contained" size="small" sx={{ mb: 1, width: '100%' }}>
                       <Button 
                         color="warning"
-                        onClick={() => handleAction(unit.id, 'minus_1m', () => onAddTime(unit.id, -1))}
+                        onClick={() => openTimeDialog(unit.id, 'deduct')}
                         disabled={loading === unit.id || unit.open_time === 1}
+                        sx={{ flex: 1 }}
                       >
-                        -1m
+                        - Time
                       </Button>
                       <Button 
-                        color="warning"
-                        onClick={() => handleAction(unit.id, 'minus_5m', () => onAddTime(unit.id, -5))}
+                        onClick={() => openTimeDialog(unit.id, 'add')}
                         disabled={loading === unit.id || unit.open_time === 1}
+                        sx={{ flex: 1 }}
                       >
-                        -5m
-                      </Button>
-                      <Button 
-                        onClick={() => handleAction(unit.id, 'plus_5m', () => onAddTime(unit.id, 5))}
-                        disabled={loading === unit.id || unit.open_time === 1}
-                      >
-                        +5m
-                      </Button>
-                      <Button 
-                        onClick={() => handleAction(unit.id, 'plus_1m', () => onAddTime(unit.id, 1))}
-                        disabled={loading === unit.id || unit.open_time === 1}
-                      >
-                        +1m
-                      </Button>
-                      <Button 
-                        color="error"
-                        onClick={() => handleAction(unit.id, 'reset_timer', () => onControl(unit.id, 'reset_timer'))}
-                        disabled={loading === unit.id || unit.open_time === 1}
-                      >
-                        <ResetIcon fontSize="small" />
+                        + Time
                       </Button>
                     </ButtonGroup>
                     {unit.open_time === 1 ? (
@@ -504,7 +525,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                         size="small"
                         onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
                         disabled={loading === unit.id}
-                        sx={{ minWidth: 110 }}
+                        sx={{ width: '100%' }}
                       >
                         Stop Open Time
                       </Button>
@@ -515,7 +536,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                         size="small"
                         onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
                         disabled={loading === unit.id}
-                        sx={{ minWidth: 110 }}
+                        sx={{ width: '100%' }}
                       >
                         Open Time
                       </Button>
@@ -527,6 +548,37 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={timeDialogOpen} onClose={closeTimeDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          {timeDialogType === 'add' ? 'Add Time' : 'Deduct Time'}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <TextField
+            autoFocus
+            fullWidth
+            type="number"
+            label="Minutes"
+            value={timeDialogAmount}
+            onChange={(e) => setTimeDialogAmount(e.target.value)}
+            inputProps={{ min: '1', step: '1' }}
+            placeholder="Enter number of minutes"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeTimeDialog} color="inherit">
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleTimeDialogConfirm} 
+            variant="contained"
+            color={timeDialogType === 'add' ? 'primary' : 'warning'}
+            disabled={!timeDialogAmount || parseInt(timeDialogAmount, 10) === 0}
+          >
+            {timeDialogType === 'add' ? 'Add' : 'Deduct'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </Box>
   );

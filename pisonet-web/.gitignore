@@ -49,8 +49,6 @@ Thumbs.db
 *.sublime-workspace
 
 # Build
-dist/
-build/
 out/
 
 # Docker
@@ -74,6 +72,11 @@ temp/
 # Frontend build
 frontend/build/
 frontend/.cache/
+frontend/node_modules/
+frontend/.chrome*
+frontend/.chrome-*
+.chrome*
+.chrome-*
 
 # Backend
 backend/pisonet.db

@@ -8,12 +8,14 @@ import {
   Dashboard as DashboardIcon,
   ReceiptLong as TransactionIcon,
   BarChart as ReportsIcon,
+  Paid as CoinsOutIcon,
   Settings as SettingsIcon
 } from '@mui/icons-material';
 
 import AdminDashboard from './AdminDashboard';
 import AdminTransactions from './AdminTransactions';
 import AdminReports from './AdminReports';
+import AdminCoinsOut from './AdminCoinsOut';
 import AdminSettings from './AdminSettings';
 
 
@@ -52,6 +54,7 @@ function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onSt
           <Tab icon={<DashboardIcon />} iconPosition="start" label="Dashboard" />
           <Tab icon={<TransactionIcon />} iconPosition="start" label="Transactions" />
           <Tab icon={<ReportsIcon />} iconPosition="start" label="Reports" />
+          <Tab icon={<CoinsOutIcon />} iconPosition="start" label="Coins Out" />
           <Tab icon={<SettingsIcon />} iconPosition="start" label="Settings" />
         </Tabs>
       </Box>
@@ -67,12 +70,15 @@ function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onSt
         />
       </TabPanel>
       <TabPanel value={value} index={1}>
-        <AdminTransactions />
+        <AdminTransactions adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={2}>
         <AdminReports />
       </TabPanel>
       <TabPanel value={value} index={3}>
+        <AdminCoinsOut adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={4}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

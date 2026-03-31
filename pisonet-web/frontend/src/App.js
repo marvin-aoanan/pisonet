@@ -88,6 +88,7 @@ function App() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [selectedUnitId, setSelectedUnitId] = useState(null);
   const [showCoinDialog, setShowCoinDialog] = useState(false);
+  const [insertedAmount, setInsertedAmount] = useState(0);
   const [selection, setSelection] = useState({ unit_id: null, expires_at: null, timeout_ms: 30000 });
   const [statusMessage, setStatusMessage] = useState('Initializing...');
   const [wsConnected, setWsConnected] = useState(false);
@@ -203,8 +204,7 @@ function App() {
                 fetchTotalRevenue();
                 setStatusMessage(`💵 Coin inserted to ${data.unit.id}`);
                 if (showCoinDialog && selection.unit_id === data.unit.id) {
-                  setShowCoinDialog(false);
-                  setSelectedUnitId(null);
+                  setInsertedAmount((prev) => prev + (data.amount || 0));
                 }
                 break;
 
@@ -295,6 +295,7 @@ function App() {
       const response = await axios.post(`${API_URL}/kiosk/selection`, { unitId });
       setSelection(response.data);
       setSelectedUnitId(unitId);
+      setInsertedAmount(0);
       setShowCoinDialog(true);
       setStatusMessage(`🪙 Waiting for coin on PC ${unitId}`);
     } catch (error) {
@@ -562,7 +563,7 @@ function App() {
         {showCoinDialog && selectedUnit && (
           <CoinDialog
             unit={selectedUnit}
-            selection={selection}
+            insertedAmount={insertedAmount}
             onClose={handleCancelSelection}
           />
         )}

@@ -2,6 +2,53 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 
+function getElectricityUsageHours(row, pesoToSeconds) {
+  const amount = Number(row?.amount || 0);
+  const denomination = Number(row?.denomination || 0);
+  const type = row?.transaction_type;
+
+  if (type === 'open_time') {
+    return Math.max(0, denomination / 60);
+  }
+
+  if (type === 'admin_add' || type === 'admin_deduct') {
+    return amount / 60;
+  }
+
+  return (amount * pesoToSeconds) / 3600;
+}
+
+function getElectricityMetrics(row, pesoToSeconds, wattage, ratePerKwh) {
+  const usageHours = getElectricityUsageHours(row, pesoToSeconds);
+  const estimatedKwh = (usageHours * wattage) / 1000;
+  const estimatedCost = estimatedKwh * ratePerKwh;
+
+  return {
+    usageHours,
+    estimatedKwh,
+    estimatedCost,
+  };
+}
+
+function loadElectricitySettings(callback) {
+  db.all(
+    `SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate')`,
+    [],
+    (settingsErr, settingRows) => {
+      if (settingsErr) {
+        return callback(settingsErr);
+      }
+
+      const settings = Object.fromEntries((settingRows || []).map((row) => [row.key, row.value]));
+      return callback(null, {
+        pesoToSeconds: Number(settings.peso_to_seconds || 60),
+        wattage: Number(settings.estimated_pc_wattage || 200),
+        ratePerKwh: Number(settings.estimated_kwh_rate || 12),
+      });
+    }
+  );
+}
+
 // GET all transactions with pagination
 router.get('/', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
@@ -43,42 +90,109 @@ router.get('/revenue/total', (req, res) => {
 
 // GET revenue by unit
 router.get('/revenue/by-unit', (req, res) => {
-  db.all(`
-    SELECT 
-      u.id,
-      u.name,
-      COALESCE(SUM(t.amount), 0) as revenue,
-      COUNT(t.id) as transaction_count
-    FROM units u
-    LEFT JOIN transactions t ON u.id = t.unit_id
-    GROUP BY u.id, u.name
-    ORDER BY revenue DESC
-  `, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
     }
-    res.json(rows);
+
+    db.all(`
+      SELECT 
+        u.id,
+        u.name,
+        t.amount,
+        t.denomination,
+        t.transaction_type,
+        t.id as transaction_id
+      FROM units u
+      LEFT JOIN transactions t ON u.id = t.unit_id
+      ORDER BY u.id ASC
+    `, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const unitMap = new Map();
+
+      for (const row of rows) {
+        const existing = unitMap.get(row.id) || {
+          id: row.id,
+          name: row.name,
+          revenue: 0,
+          usage_hours: 0,
+          transaction_count: 0,
+        };
+
+        if (row.transaction_id) {
+          existing.revenue += Number(row.amount || 0);
+          existing.usage_hours += getElectricityUsageHours(row, pesoToSeconds);
+          existing.transaction_count += 1;
+        }
+
+        unitMap.set(row.id, existing);
+      }
+
+      const result = Array.from(unitMap.values())
+        .map((row) => ({
+          ...row,
+          revenue: Number(row.revenue.toFixed(4)),
+          usage_hours: Number(row.usage_hours.toFixed(4)),
+        }))
+        .sort((a, b) => b.revenue - a.revenue);
+
+      res.json(result);
+    });
   });
 });
 
 // GET revenue over time (daily)
 router.get('/revenue/daily', (req, res) => {
   const days = parseInt(req.query.days) || 30;
-  
-  db.all(`
-    SELECT 
-      DATE(timestamp, 'localtime') as date,
-      COALESCE(SUM(amount), 0) as daily_revenue,
-      COUNT(*) as transaction_count
-    FROM transactions
-    WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', '-${days} days')
-    GROUP BY DATE(timestamp, 'localtime')
-    ORDER BY date DESC
-  `, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+
+  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
     }
-    res.json(rows);
+
+    db.all(`
+      SELECT 
+        DATE(timestamp, 'localtime') as date,
+        amount,
+        denomination,
+        transaction_type
+      FROM transactions
+      WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', '-${days} days')
+      ORDER BY date DESC
+    `, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const dailyMap = new Map();
+
+      for (const row of rows) {
+        const existing = dailyMap.get(row.date) || {
+          date: row.date,
+          daily_revenue: 0,
+          daily_hours: 0,
+          transaction_count: 0,
+        };
+
+        existing.daily_revenue += Number(row.amount || 0);
+        existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
+        existing.transaction_count += 1;
+        dailyMap.set(row.date, existing);
+      }
+
+      const result = Array.from(dailyMap.values())
+        .map((row) => ({
+          ...row,
+          daily_revenue: Number(row.daily_revenue.toFixed(4)),
+          daily_hours: Number(row.daily_hours.toFixed(4)),
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      res.json(result);
+    });
   });
 });
 
@@ -98,6 +212,117 @@ router.get('/revenue/hourly', (req, res) => {
       return res.status(500).json({ error: err.message });
     }
     res.json(rows);
+  });
+});
+
+// GET estimated electricity consumption over time (daily)
+router.get('/electricity/daily', (req, res) => {
+  const days = parseInt(req.query.days, 10) || 30;
+
+  loadElectricitySettings((settingsErr, { pesoToSeconds, wattage, ratePerKwh } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+      db.all(
+        `
+          SELECT DATE(timestamp, 'localtime') as date, amount, denomination, transaction_type
+          FROM transactions
+          WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', ?)
+          ORDER BY date ASC
+        `,
+        [`-${days} days`],
+        (txErr, rows) => {
+          if (txErr) {
+            return res.status(500).json({ error: txErr.message });
+          }
+
+          const dailyMap = new Map();
+
+          for (const row of rows) {
+            const metrics = getElectricityMetrics(row, pesoToSeconds, wattage, ratePerKwh);
+            const current = dailyMap.get(row.date) || { estimated_usage_hours: 0, estimated_kwh: 0, estimated_cost: 0 };
+            const nextUsageHours = current.estimated_usage_hours + metrics.usageHours;
+            const nextKwh = current.estimated_kwh + metrics.estimatedKwh;
+            const nextCost = current.estimated_cost + metrics.estimatedCost;
+            dailyMap.set(row.date, {
+              estimated_usage_hours: nextUsageHours,
+              estimated_kwh: nextKwh,
+              estimated_cost: nextCost,
+            });
+          }
+
+          const result = Array.from(dailyMap.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([date, values]) => ({
+              date,
+              estimated_usage_hours: Number(values.estimated_usage_hours.toFixed(4)),
+              estimated_kwh: Number(values.estimated_kwh.toFixed(4)),
+              estimated_cost: Number(values.estimated_cost.toFixed(4)),
+              estimated_pc_wattage: wattage,
+              estimated_kwh_rate: ratePerKwh,
+            }));
+
+          return res.json(result);
+        }
+      );
+  });
+});
+
+// GET estimated electricity consumption by unit
+router.get('/electricity/by-unit', (req, res) => {
+  loadElectricitySettings((settingsErr, { pesoToSeconds, wattage, ratePerKwh } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    db.all(
+      `
+        SELECT u.id, u.name, t.amount, t.denomination, t.transaction_type
+        FROM units u
+        LEFT JOIN transactions t ON u.id = t.unit_id
+        ORDER BY u.id ASC
+      `,
+      [],
+      (txErr, rows) => {
+        if (txErr) {
+          return res.status(500).json({ error: txErr.message });
+        }
+
+        const unitMap = new Map();
+
+        for (const row of rows) {
+          const key = row.id;
+          const existing = unitMap.get(key) || {
+            id: row.id,
+            name: row.name,
+            estimated_usage_hours: 0,
+            estimated_kwh: 0,
+            estimated_cost: 0,
+          };
+
+          if (row.transaction_type) {
+            const metrics = getElectricityMetrics(row, pesoToSeconds, wattage, ratePerKwh);
+            existing.estimated_usage_hours += metrics.usageHours;
+            existing.estimated_kwh += metrics.estimatedKwh;
+            existing.estimated_cost += metrics.estimatedCost;
+          }
+
+          unitMap.set(key, existing);
+        }
+
+        const result = Array.from(unitMap.values()).map((row) => ({
+          ...row,
+          estimated_usage_hours: Number(row.estimated_usage_hours.toFixed(4)),
+          estimated_kwh: Number(row.estimated_kwh.toFixed(4)),
+          estimated_cost: Number(row.estimated_cost.toFixed(4)),
+          estimated_pc_wattage: wattage,
+          estimated_kwh_rate: ratePerKwh,
+        }));
+
+        return res.json(result);
+      }
+    );
   });
 });
 

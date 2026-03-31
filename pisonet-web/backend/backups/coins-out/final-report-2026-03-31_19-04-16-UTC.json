@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-03-31T19:04:16.796Z",
+  "totals": {
+    "estimated_total_revenue": 80,
+    "electricity_consumption": {
+      "estimated_usage_hours": 1.3333,
+      "estimated_kwh": 0.2667,
+      "estimated_cost": 3.2,
+      "estimated_pc_wattage": 200,
+      "estimated_kwh_rate": 12
+    }
+  },
+  "revenue_breakdown_by_transaction_type": [
+    {
+      "transaction_type": "admin_add",
+      "count": 2,
+      "total_amount": 80
+    }
+  ],
+  "transaction_count": 2,
+  "period": {
+    "start": "2026-03-31T18:26:55.297Z",
+    "end": "2026-03-31T18:30:03.583Z"
+  }
+}

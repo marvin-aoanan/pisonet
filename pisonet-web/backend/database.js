@@ -6,8 +6,18 @@ const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'pisonet.db');
 const wasmPath = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
 
 let sqlDb = null;
+let SqlJsModule = null;
 let saveTimer = null;
 let pendingSave = false;
+
+function writeCurrentDbToFile(targetPath) {
+  if (!sqlDb) {
+    throw new Error('Database is not initialized');
+  }
+
+  const data = sqlDb.export();
+  fs.writeFileSync(targetPath, Buffer.from(data));
+}
 
 function scheduleSave() {
   pendingSave = true;
@@ -41,6 +51,29 @@ function getLastInsertId() {
 
 const db = {
   ready: null,
+  snapshotToFile(targetPath) {
+    writeCurrentDbToFile(targetPath);
+  },
+  restoreFromFile(sourcePath) {
+    if (!SqlJsModule) {
+      throw new Error('SQL.js module is not initialized');
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error('Backup file not found');
+    }
+
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    pendingSave = false;
+
+    const fileBuffer = fs.readFileSync(sourcePath);
+    sqlDb = new SqlJsModule.Database(new Uint8Array(fileBuffer));
+
+    scheduleSave();
+  },
   serialize(fn) {
     fn();
   },
@@ -226,7 +259,8 @@ function initializeDatabase() {
     `);
 
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('peso_to_seconds', '60')`);
-    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('max_session_duration', '3600')`);
+  db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);
 
     db.get('SELECT COUNT(*) as count FROM units', [], (err, row) => {
@@ -253,6 +287,8 @@ function initializeDatabase() {
 db.ready = initSqlJs({
   locateFile: (file) => path.join(wasmPath, file)
 }).then((SQL) => {
+  SqlJsModule = SQL;
+
   if (fs.existsSync(dbPath)) {
     const fileBuffer = fs.readFileSync(dbPath);
     sqlDb = new SQL.Database(new Uint8Array(fileBuffer));

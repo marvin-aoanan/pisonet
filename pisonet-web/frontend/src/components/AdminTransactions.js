@@ -6,9 +6,10 @@ import CustomGridToolbar from './CustomGridToolbar';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
-function AdminTransactions() {
+function AdminTransactions({ adminPassword }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pesoToSeconds, setPesoToSeconds] = useState(60);
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -24,6 +25,67 @@ function AdminTransactions() {
 
     fetchTransactions();
   }, []);
+
+  useEffect(() => {
+    const fetchPricing = async () => {
+      if (!adminPassword) return;
+
+      try {
+        const response = await axios.get(`${API_URL}/settings/peso_to_seconds`, {
+          headers: { 'x-admin-password': adminPassword }
+        });
+        const nextValue = Number(response?.data?.value);
+        if (!Number.isNaN(nextValue) && nextValue > 0) {
+          setPesoToSeconds(nextValue);
+        }
+      } catch (err) {
+        console.error('Error fetching peso_to_seconds setting:', err);
+      }
+    };
+
+    fetchPricing();
+  }, [adminPassword]);
+
+  const formatDurationFromSeconds = (seconds) => {
+    const totalSeconds = Math.max(0, Number(seconds) || 0);
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+
+    return `${totalMinutes}m`;
+  };
+
+  const getEquivalentSeconds = (row) => {
+    const amount = Number(row?.amount || 0);
+    const type = row?.transaction_type;
+    const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct' || type === 'open_time';
+
+    if (isAdminAdjust) {
+      return Math.max(0, Math.floor(amount * 60));
+    }
+
+    return Math.max(0, Math.floor(amount * pesoToSeconds));
+  };
+
+  const getEquivalentPesoAmount = (row) => {
+    const amount = Number(row?.amount || 0);
+    const type = row?.transaction_type;
+    const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct';
+
+    if (!isAdminAdjust) {
+      return amount;
+    }
+
+    if (!pesoToSeconds || pesoToSeconds <= 0) {
+      return 0;
+    }
+
+    return (amount * 60) / pesoToSeconds;
+  };
 
   const columns = [
     { field: 'id', headerName: 'ID', width: 90 },
@@ -44,7 +106,7 @@ function AdminTransactions() {
     },
     {
       field: 'time',
-      headerName: 'Time',
+      headerName: 'Timestamp',
       width: 120,
       sortable: false,
       filterable: false,
@@ -95,22 +157,53 @@ function AdminTransactions() {
         const type = params.row.transaction_type;
         const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct';
         if (isAdminAdjust) {
-          const mins = Number(params.value);
-          const sign = mins >= 0 ? '+' : '';
+          const pesoAmount = getEquivalentPesoAmount(params.row);
+          const sign = pesoAmount >= 0 ? '+' : '';
           return (
-            <Typography color={mins >= 0 ? 'primary.main' : 'warning.main'} fontWeight="bold">
-              {sign}{mins}m
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '100%', width: '100%' }}>
+              <Typography color={pesoAmount >= 0 ? 'primary.main' : 'warning.main'} fontWeight="bold">
+                {sign}₱{Math.abs(pesoAmount).toFixed(2)}
+              </Typography>
+            </Box>
           );
         }
         return (
-          <Typography color="success.main" fontWeight="bold">
-            +₱{Number(params.value).toFixed(2)}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '100%', width: '100%' }}>
+            <Typography color="success.main" fontWeight="bold">
+              +₱{Number(params.value).toFixed(2)}
+            </Typography>
+          </Box>
         );
       }
     },
+    {
+      field: 'equivalent_time',
+      headerName: 'Time',
+      width: 140,
+      sortable: false,
+      filterable: false,
+      valueGetter: (value, row) => getEquivalentSeconds(row),
+      renderCell: (params) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
+          <Typography color="info.main" fontWeight="bold">
+            {formatDurationFromSeconds(getEquivalentSeconds(params.row))}
+          </Typography>
+        </Box>
+      )
+    },
   ];
+
+  const orderedColumns = columns.reduce((acc, column) => {
+    if (column.field === 'amount') {
+      acc.push(columns.find((c) => c.field === 'equivalent_time'));
+    }
+
+    if (column.field !== 'equivalent_time') {
+      acc.push(column);
+    }
+
+    return acc;
+  }, []);
 
   return (
     <Box sx={{ height: 700, width: '100%' }}>
@@ -120,7 +213,7 @@ function AdminTransactions() {
       
       <DataGrid
         rows={rows}
-        columns={columns}
+        columns={orderedColumns}
         initialState={{
           pagination: {
             paginationModel: { page: 0, pageSize: 25 },

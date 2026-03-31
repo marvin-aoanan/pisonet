@@ -142,6 +142,7 @@ router.post('/:id/add-time', (req, res) => {
           if (global.broadcast) {
             global.broadcast({
               type: 'COIN_INSERTED',
+              amount: amount,
               unit: {
                 id: parseInt(unitId),
                 remaining_seconds: newSeconds,

@@ -6,7 +6,6 @@ import {
   Box,
   TextField,
   Button,
-  Grid,
   Alert,
   Snackbar,
   CircularProgress,
@@ -75,6 +74,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
       [key]: value
     }));
   };
+
 
   const handleSave = async () => {
     setSaving(true);
@@ -168,6 +168,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     }
   };
 
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -206,18 +207,11 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextField
                   fullWidth
-                  label="Seconds per Peso"
+                  label="Minutes per Peso"
                   type="number"
-                  helperText={`Currently: ${settings.peso_to_seconds} seconds = ₱1. (60 = 1 min/peso)`}
-                  value={settings.peso_to_seconds || ''}
-                  onChange={(e) => handleChange('peso_to_seconds', e.target.value)}
-                />
-                <TextField
-                  fullWidth
-                  label="Max Session Duration (Seconds)"
-                  type="number"
-                  value={settings.max_session_duration || ''}
-                  onChange={(e) => handleChange('max_session_duration', e.target.value)}
+                  helperText={`Currently: ${Number(settings.peso_to_seconds || 0) / 60} minute(s) = ₱1.`}
+                  value={settings.peso_to_seconds ? Number(settings.peso_to_seconds) / 60 : ''}
+                  onChange={(e) => handleChange('peso_to_seconds', String(Number(e.target.value || 0) * 60))}
                 />
               </Box>
             </Box>
@@ -241,6 +235,33 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                   <option value="true">Enabled</option>
                   <option value="false">Disabled</option>
                 </TextField>
+              </Box>
+            </Box>
+
+            <Divider />
+
+            {/* Electricity Consumption */}
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Electricity Consumption
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  fullWidth
+                  label="Estimated PC Wattage (W)"
+                  type="number"
+                  helperText="Used for the Estimated Electricity Consumption report."
+                  value={settings.estimated_pc_wattage || ''}
+                  onChange={(e) => handleChange('estimated_pc_wattage', e.target.value)}
+                />
+                <TextField
+                  fullWidth
+                  label="Estimated Electricity Rate (₱/kWh)"
+                  type="number"
+                  helperText="Used to estimate electricity cost from computed consumption."
+                  value={settings.estimated_kwh_rate || ''}
+                  onChange={(e) => handleChange('estimated_kwh_rate', e.target.value)}
+                />
               </Box>
             </Box>
 

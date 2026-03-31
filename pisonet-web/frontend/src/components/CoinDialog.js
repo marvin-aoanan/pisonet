@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -6,43 +6,11 @@ import {
   DialogActions,
   Button,
   Typography,
-  Box,
-  LinearProgress
+  Box
 } from '@mui/material';
 import { MonetizationOn as CoinIcon } from '@mui/icons-material';
 
-function CoinDialog({ unit, selection, onClose }) {
-  const timeoutMs = selection?.timeout_ms || 30000;
-  const [remainingMs, setRemainingMs] = useState(timeoutMs);
-
-  const expiresAt = useMemo(() => {
-    if (!selection?.expires_at) {
-      return null;
-    }
-    const value = new Date(selection.expires_at).getTime();
-    return Number.isNaN(value) ? null : value;
-  }, [selection?.expires_at]);
-
-  useEffect(() => {
-    if (!expiresAt) {
-      setRemainingMs(timeoutMs);
-      return undefined;
-    }
-
-    const updateCountdown = () => {
-      const diff = Math.max(0, expiresAt - Date.now());
-      setRemainingMs(diff);
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 250);
-
-    return () => clearInterval(interval);
-  }, [expiresAt, timeoutMs]);
-
-  const progressValue = Math.max(0, Math.min(100, (remainingMs / timeoutMs) * 100));
-  const secondsLeft = Math.ceil(remainingMs / 1000);
-
+function CoinDialog({ unit, insertedAmount = 0, onClose }) {
   return (
     <Dialog 
       open={true} 
@@ -61,19 +29,14 @@ function CoinDialog({ unit, selection, onClose }) {
             Waiting for coin acceptor input...
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Selected PC: {unit.name}
+            Selected: {unit.name}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Time left to insert: {secondsLeft}s
-          </Typography>
+          {insertedAmount > 0 && (
+            <Typography variant="h6" color="success.main" sx={{ mt: 1.5, fontWeight: 'bold' }}>
+              ₱{insertedAmount.toFixed(2)} inserted
+            </Typography>
+          )}
         </Box>
-
-        <LinearProgress
-          variant="determinate"
-          value={progressValue}
-          color={remainingMs > 5000 ? 'primary' : 'warning'}
-          sx={{ height: 10, borderRadius: 5, mt: 1 }}
-        />
       </DialogContent>
       
       <DialogActions>
