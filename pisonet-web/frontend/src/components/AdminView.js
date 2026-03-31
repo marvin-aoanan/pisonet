@@ -38,7 +38,7 @@ function TabPanel(props) {
   );
 }
 
-function AdminView({ units, totalRevenue, onControl, onAddTime }) {
+function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime, adminPassword, onAdminPasswordChanged }) {
   const [value, setValue] = useState(0);
 
   const handleChange = (event, newValue) => {
@@ -62,6 +62,8 @@ function AdminView({ units, totalRevenue, onControl, onAddTime }) {
           totalRevenue={totalRevenue}
           onControl={onControl}
           onAddTime={onAddTime}
+          onOpenTime={onOpenTime}
+          onStopOpenTime={onStopOpenTime}
         />
       </TabPanel>
       <TabPanel value={value} index={1}>
@@ -71,7 +73,10 @@ function AdminView({ units, totalRevenue, onControl, onAddTime }) {
         <AdminReports />
       </TabPanel>
       <TabPanel value={value} index={3}>
-        <AdminSettings />
+        <AdminSettings
+          adminPassword={adminPassword}
+          onAdminPasswordChanged={onAdminPasswordChanged}
+        />
       </TabPanel>
     </Box>
   );

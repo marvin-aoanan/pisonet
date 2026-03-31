@@ -275,7 +275,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password']
 };
 
 app.use(cors(corsOptions));
@@ -474,6 +474,13 @@ global.broadcast = (data) => {
 // Timer countdown - runs every second (debounced updates)
 let lastUpdateTime = {};
 let countdownTimer = null;
+const OPEN_TIME_BLOCK_SECONDS = 20 * 60;
+const OPEN_TIME_BLOCK_PRICE = 5;
+
+function calculateOpenTimeAmount(elapsedSeconds) {
+  const billedBlocks = Math.max(1, Math.ceil(Math.max(0, elapsedSeconds) / OPEN_TIME_BLOCK_SECONDS));
+  return billedBlocks * OPEN_TIME_BLOCK_PRICE;
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -539,6 +546,30 @@ async function startServer() {
             id: update.id,
             remaining_seconds: update.newSeconds,
             status: update.newStatus
+          }
+        });
+      });
+    });
+
+    // Broadcast elapsed time for open-time units every second
+    db.all('SELECT id, open_time_start FROM units WHERE open_time = 1', [], (openErr, openUnits) => {
+      if (openErr) {
+        console.error('Error fetching open-time units:', openErr);
+        return;
+      }
+      const now = Date.now();
+      openUnits.forEach((unit) => {
+        if (!unit.open_time_start) return;
+        const elapsed = Math.max(0, Math.floor((now - new Date(unit.open_time_start).getTime()) / 1000));
+        const amount = calculateOpenTimeAmount(elapsed);
+        global.broadcast({
+          type: 'UNIT_UPDATE',
+          unit: {
+            id: unit.id,
+            open_time: 1,
+            open_time_elapsed: elapsed,
+            open_time_amount: amount,
+            status: 'Active'
           }
         });
       });

@@ -1,6 +1,73 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { hashPassword, validateAdminPassword, requireAdminAuth } = require('../admin-auth');
+
+router.post('/admin/auth', (req, res) => {
+  const password = req.body?.password;
+
+  validateAdminPassword(password, (err, valid) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to validate admin password' });
+    }
+
+    return res.json({ valid });
+  });
+});
+
+router.put('/admin/password', (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password are required' });
+  }
+
+  if (newPassword.length < 4) {
+    return res.status(400).json({ error: 'New password must be at least 4 characters' });
+  }
+
+  validateAdminPassword(currentPassword, (err, valid) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to validate current password' });
+    }
+
+    if (!valid) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hashedPassword = hashPassword(newPassword);
+
+    db.run(
+      'UPDATE settings SET value = ?, updated_at = ? WHERE key = ?',
+      [hashedPassword, new Date().toISOString(), 'admin_password_hash'],
+      function(updateErr) {
+        if (updateErr) {
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        if (this.changes === 0) {
+          db.run(
+            'INSERT INTO settings (key, value) VALUES (?, ?)',
+            ['admin_password_hash', hashedPassword],
+            (insertErr) => {
+              if (insertErr) {
+                return res.status(500).json({ error: insertErr.message });
+              }
+
+              return res.json({ message: 'Admin password updated successfully' });
+            }
+          );
+          return;
+        }
+
+        return res.json({ message: 'Admin password updated successfully' });
+      }
+    );
+  });
+});
+
+router.use(requireAdminAuth);
 
 // GET all settings
 router.get('/', (req, res) => {
@@ -14,6 +81,8 @@ router.get('/', (req, res) => {
     rows.forEach(row => {
       settings[row.key] = row.value;
     });
+
+    delete settings.admin_password_hash;
     
     res.json(settings);
   });
@@ -22,6 +91,10 @@ router.get('/', (req, res) => {
 // GET single setting
 router.get('/:key', (req, res) => {
   const key = req.params.key;
+
+  if (key === 'admin_password_hash') {
+    return res.status(403).json({ error: 'Access denied' });
+  }
   
   db.get('SELECT * FROM settings WHERE key = ?', [key], (err, row) => {
     if (err) {
@@ -38,6 +111,10 @@ router.get('/:key', (req, res) => {
 router.put('/:key', (req, res) => {
   const { value } = req.body;
   const key = req.params.key;
+
+  if (key === 'admin_password_hash') {
+    return res.status(403).json({ error: 'Use /api/settings/admin/password to update admin password' });
+  }
 
   if (!value) {
     return res.status(400).json({ error: 'Value is required' });
@@ -76,6 +153,10 @@ router.put('/', (req, res) => {
   const timestamp = new Date().toISOString();
   let completed = 0;
   let errors = [];
+
+  if (Object.prototype.hasOwnProperty.call(settings, 'admin_password_hash')) {
+    return res.status(403).json({ error: 'Use /api/settings/admin/password to update admin password' });
+  }
 
   Object.entries(settings).forEach(([key, value]) => {
     db.run(

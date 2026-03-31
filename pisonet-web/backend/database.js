@@ -158,6 +158,18 @@ function initializeDatabase() {
       }
     });
 
+    // Backward-compatible migration for open-time session tracking.
+    db.run('ALTER TABLE units ADD COLUMN open_time INTEGER DEFAULT 0', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.open_time column:', err);
+      }
+    });
+    db.run('ALTER TABLE units ADD COLUMN open_time_start TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.open_time_start column:', err);
+      }
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

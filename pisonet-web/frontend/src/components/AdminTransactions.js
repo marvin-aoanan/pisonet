@@ -27,14 +27,35 @@ function AdminTransactions() {
 
   const columns = [
     { field: 'id', headerName: 'ID', width: 90 },
-    { 
-      field: 'timestamp', 
-      headerName: 'Date/Time', 
-      width: 250,
+    {
+      field: 'date',
+      headerName: 'Date',
+      type: 'date',
+      width: 140,
+      valueGetter: (value, row) => {
+        if (!row.timestamp) return null;
+        const d = new Date(row.timestamp);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      },
       renderCell: (params) => {
-        if (!params.value) return '';
-        return new Date(params.value).toLocaleString();
-      }
+        if (!params.row.timestamp) return '';
+        return new Date(params.row.timestamp).toLocaleDateString();
+      },
+    },
+    {
+      field: 'time',
+      headerName: 'Time',
+      width: 120,
+      sortable: false,
+      filterable: false,
+      valueGetter: (value, row) => {
+        if (!row.timestamp) return '';
+        return new Date(row.timestamp).toLocaleTimeString();
+      },
+      renderCell: (params) => {
+        if (!params.row.timestamp) return '';
+        return new Date(params.row.timestamp).toLocaleTimeString();
+      },
     },
     { 
       field: 'unit_id', 
@@ -47,22 +68,41 @@ function AdminTransactions() {
     { 
       field: 'transaction_type', 
       headerName: 'Type', 
-      width: 150,
-      renderCell: (params) => (
-        <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
-          {params.value}
-        </Typography>
-      )
+      width: 160,
+      renderCell: (params) => {
+        const typeMap = {
+          coin: { label: 'Coin', color: 'success' },
+          coin_acceptor: { label: 'Coin Acceptor', color: 'success' },
+          gateway: { label: 'Gateway', color: 'info' },
+          admin_add: { label: 'Admin Add', color: 'primary' },
+          admin_deduct: { label: 'Admin Deduct', color: 'warning' },
+          open_time: { label: 'Open Time', color: 'secondary' },
+          manual: { label: 'Manual', color: 'default' },
+        };
+        const entry = typeMap[params.value] || { label: params.value, color: 'default' };
+        return <Chip label={entry.label} color={entry.color} size="small" />;
+      }
     },
     { 
       field: 'amount', 
       headerName: 'Amount', 
-      width: 150, 
+      width: 160, 
       type: 'number',
       headerAlign: 'right',
       align: 'right',
       renderCell: (params) => {
         if (params.value == null) return null;
+        const type = params.row.transaction_type;
+        const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct';
+        if (isAdminAdjust) {
+          const mins = Number(params.value);
+          const sign = mins >= 0 ? '+' : '';
+          return (
+            <Typography color={mins >= 0 ? 'primary.main' : 'warning.main'} fontWeight="bold">
+              {sign}{mins}m
+            </Typography>
+          );
+        }
         return (
           <Typography color="success.main" fontWeight="bold">
             +₱{Number(params.value).toFixed(2)}

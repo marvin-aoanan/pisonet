@@ -14,6 +14,11 @@ import {
   Grid,
   Paper,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
   createTheme,
   ThemeProvider,
   CssBaseline
@@ -90,6 +95,11 @@ function App() {
   const [error, setError] = useState(null);
   const [stats, setStats] = useState(null);
   const [viewMode, setViewMode] = useState('customer'); // customer or admin
+  const [adminAuthOpen, setAdminAuthOpen] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminAuthError, setAdminAuthError] = useState('');
+  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
 
   // Fetch units
   const fetchUnits = useCallback(async () => {
@@ -309,11 +319,26 @@ function App() {
   // Handle hardware control
   const handleControl = async (unitId, action) => {
     try {
-      await axios.post(`${API_URL}/units/${unitId}/control`, { action });
+      await axios.post(
+        `${API_URL}/units/${unitId}/control`,
+        { action },
+        {
+          headers: {
+            'x-admin-password': adminPassword
+          }
+        }
+      );
       setStatusMessage(`⚙️ ${action.toUpperCase()} command sent to PC ${unitId}`);
       fetchUnits();
     } catch (error) {
       console.error('Error sending control command:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
       setStatusMessage(`❌ Error sending ${action} command`);
       throw error;
     }
@@ -324,15 +349,117 @@ function App() {
     try {
       await axios.post(
         `${API_URL}/units/${unitId}/adjust-time`,
-        { minutes }
+        { minutes },
+        {
+          headers: {
+            'x-admin-password': adminPassword
+          }
+        }
       );
       const direction = minutes > 0 ? 'Added' : 'Removed';
       setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitId}`);
       fetchUnits();
     } catch (error) {
       console.error('Error adjusting time:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
       setStatusMessage('❌ Error adjusting time');
       throw error;
+    }
+  };
+
+  // Handle start open-time session (admin feature, ₱15/hour)
+  const handleOpenTime = async (unitId) => {
+    try {
+      await axios.post(
+        `${API_URL}/units/${unitId}/open-time`,
+        {},
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setStatusMessage(`⏱️ Open time started on PC ${unitId}`);
+      fetchUnits();
+    } catch (error) {
+      console.error('Error starting open time:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
+      setStatusMessage('❌ Error starting open time');
+      throw error;
+    }
+  };
+
+  // Handle stop open-time session (admin feature)
+  const handleStopOpenTime = async (unitId) => {
+    try {
+      await axios.delete(
+        `${API_URL}/units/${unitId}/open-time`,
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setStatusMessage(`⏹️ Open time stopped on PC ${unitId}`);
+      fetchUnits();
+    } catch (error) {
+      console.error('Error stopping open time:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
+      setStatusMessage('❌ Error stopping open time');
+      throw error;
+    }
+  };
+
+  const handleAdminToggle = () => {
+    if (viewMode === 'admin') {
+      setViewMode('customer');
+      return;
+    }
+
+    setAdminAuthError('');
+    setAdminPasswordInput('');
+    setAdminAuthOpen(true);
+  };
+
+  const handleAdminLogin = async () => {
+    if (!adminPasswordInput) {
+      setAdminAuthError('Password is required.');
+      return;
+    }
+
+    setAdminAuthLoading(true);
+    setAdminAuthError('');
+
+    try {
+      const response = await axios.post(`${API_URL}/settings/admin/auth`, {
+        password: adminPasswordInput
+      });
+
+      if (!response.data?.valid) {
+        setAdminAuthError('Invalid admin password.');
+        return;
+      }
+
+      setAdminPassword(adminPasswordInput);
+      setAdminAuthOpen(false);
+      setViewMode('admin');
+      setAdminPasswordInput('');
+      setStatusMessage('🔓 Admin access granted');
+    } catch (error) {
+      console.error('Error verifying admin password:', error);
+      setAdminAuthError('Failed to verify password. Please try again.');
+    } finally {
+      setAdminAuthLoading(false);
     }
   };
 
@@ -367,7 +494,7 @@ function App() {
             {/* View Toggle */}
             <Button 
               color="inherit" 
-              onClick={() => setViewMode(viewMode === 'customer' ? 'admin' : 'customer')}
+              onClick={handleAdminToggle}
               startIcon={viewMode === 'customer' ? <TimelineIcon /> : <MonitorIcon />}
             >
               {viewMode === 'customer' ? 'Admin Dashboard' : 'Customer View'}
@@ -403,6 +530,10 @@ function App() {
                   totalRevenue={totalRevenue}
                   onControl={handleControl}
                   onAddTime={handleAddTime}
+                  onOpenTime={handleOpenTime}
+                  onStopOpenTime={handleStopOpenTime}
+                  adminPassword={adminPassword}
+                  onAdminPasswordChanged={setAdminPassword}
                 />
               )}
             </>
@@ -435,6 +566,48 @@ function App() {
             onClose={handleCancelSelection}
           />
         )}
+
+        <Dialog
+          open={adminAuthOpen}
+          onClose={() => {
+            if (!adminAuthLoading) {
+              setAdminAuthOpen(false);
+            }
+          }}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>Admin Password Required</DialogTitle>
+          <DialogContent>
+            <TextField
+              margin="normal"
+              autoFocus
+              fullWidth
+              label="Admin Password"
+              type="password"
+              value={adminPasswordInput}
+              onChange={(event) => setAdminPasswordInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handleAdminLogin();
+                }
+              }}
+            />
+            {adminAuthError && (
+              <Alert severity="error" sx={{ mt: 1 }}>
+                {adminAuthError}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setAdminAuthOpen(false)} disabled={adminAuthLoading}>
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={handleAdminLogin} disabled={adminAuthLoading}>
+              {adminAuthLoading ? 'Checking...' : 'Enter Admin'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </ThemeProvider>
   );

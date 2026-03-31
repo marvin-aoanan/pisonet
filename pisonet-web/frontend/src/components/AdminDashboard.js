@@ -33,7 +33,7 @@ import { areaElementClasses, lineElementClasses, chartsAxisHighlightClasses } fr
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
-function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
+function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime }) {
   const [loading, setLoading] = useState(null);
   const [dailyRevenue, setDailyRevenue] = useState([]);
   const [weekIndex, setWeekIndex] = useState(null);
@@ -53,7 +53,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
     return `${h}h ${m}m`;
   };
 
-  const activeUnits = units.filter(u => u.remaining_seconds > 0).length;
+  const activeUnits = units.filter(u => u.remaining_seconds > 0 || u.open_time === 1).length;
   const idleUnits = Math.max(units.length - activeUnits, 0);
 
   useEffect(() => {
@@ -415,9 +415,14 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <Typography variant="h6" color="text.primary">
-                    {formatTime(unit.remaining_seconds)}
+                  <Typography variant="h6" color={unit.open_time === 1 ? 'warning.main' : 'text.primary'}>
+                    {unit.open_time === 1 ? formatTime(unit.open_time_elapsed || 0) : formatTime(unit.remaining_seconds)}
                   </Typography>
+                  {unit.open_time === 1 && (
+                    <Typography variant="caption" color="warning.main" display="block">
+                      ₱{(unit.open_time_amount || 0).toFixed(2)} owed
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell align="right">
                   <Typography color="secondary.main" fontWeight="bold">
@@ -456,47 +461,73 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime }) {
                   </ButtonGroup>
                 </TableCell>
                 <TableCell align="center">
-                  <ButtonGroup variant="contained" size="small">
-                    <Button 
-                      color="warning"
-                      onClick={() => handleAction(unit.id, 'minus_15m', () => onAddTime(unit.id, -15))}
-                      disabled={loading === unit.id}
-                    >
-                      -15m
-                    </Button>
-                    <Button 
-                      color="warning"
-                      onClick={() => handleAction(unit.id, 'minus_5m', () => onAddTime(unit.id, -5))}
-                      disabled={loading === unit.id}
-                    >
-                      -5m
-                    </Button>
-                    <Button 
-                      onClick={() => handleAction(unit.id, 'plus_5m', () => onAddTime(unit.id, 5))}
-                      disabled={loading === unit.id}
-                    >
-                      +5m
-                    </Button>
-                    <Button 
-                      onClick={() => handleAction(unit.id, 'plus_15m', () => onAddTime(unit.id, 15))}
-                      disabled={loading === unit.id}
-                    >
-                      +15m
-                    </Button>
-                    <Button 
-                      color="error"
-                      onClick={() => handleAction(unit.id, 'reset_timer', () => onControl(unit.id, 'reset_timer'))}
-                      disabled={loading === unit.id}
-                    >
-                      <ResetIcon fontSize="small" />
-                    </Button>
-                  </ButtonGroup>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
+                    <ButtonGroup variant="contained" size="small">
+                      <Button 
+                        color="warning"
+                        onClick={() => handleAction(unit.id, 'minus_1m', () => onAddTime(unit.id, -1))}
+                        disabled={loading === unit.id || unit.open_time === 1}
+                      >
+                        -1m
+                      </Button>
+                      <Button 
+                        color="warning"
+                        onClick={() => handleAction(unit.id, 'minus_5m', () => onAddTime(unit.id, -5))}
+                        disabled={loading === unit.id || unit.open_time === 1}
+                      >
+                        -5m
+                      </Button>
+                      <Button 
+                        onClick={() => handleAction(unit.id, 'plus_5m', () => onAddTime(unit.id, 5))}
+                        disabled={loading === unit.id || unit.open_time === 1}
+                      >
+                        +5m
+                      </Button>
+                      <Button 
+                        onClick={() => handleAction(unit.id, 'plus_1m', () => onAddTime(unit.id, 1))}
+                        disabled={loading === unit.id || unit.open_time === 1}
+                      >
+                        +1m
+                      </Button>
+                      <Button 
+                        color="error"
+                        onClick={() => handleAction(unit.id, 'reset_timer', () => onControl(unit.id, 'reset_timer'))}
+                        disabled={loading === unit.id || unit.open_time === 1}
+                      >
+                        <ResetIcon fontSize="small" />
+                      </Button>
+                    </ButtonGroup>
+                    {unit.open_time === 1 ? (
+                      <Button
+                        variant="contained"
+                        color="error"
+                        size="small"
+                        onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
+                        disabled={loading === unit.id}
+                        sx={{ minWidth: 110 }}
+                      >
+                        Stop Open Time
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        color="warning"
+                        size="small"
+                        onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
+                        disabled={loading === unit.id}
+                        sx={{ minWidth: 110 }}
+                      >
+                        Open Time
+                      </Button>
+                    )}
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </TableContainer>
+
     </Box>
   );
 }

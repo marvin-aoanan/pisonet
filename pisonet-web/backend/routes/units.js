@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { requireAdminAuth } = require('../admin-auth');
+
+const OPEN_TIME_BLOCK_SECONDS = 20 * 60;
+const OPEN_TIME_BLOCK_PRICE = 5;
+
+function calculateOpenTimeAmount(elapsedSeconds) {
+  const billedBlocks = Math.max(1, Math.ceil(Math.max(0, elapsedSeconds) / OPEN_TIME_BLOCK_SECONDS));
+  return billedBlocks * OPEN_TIME_BLOCK_PRICE;
+}
 
 // GET all units with session info
 router.get('/', (req, res) => {
@@ -13,7 +22,15 @@ router.get('/', (req, res) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
-    res.json(rows);
+    const now = Date.now();
+    const enriched = rows.map((row) => {
+      if (row.open_time && row.open_time_start) {
+        const elapsed = Math.max(0, Math.floor((now - new Date(row.open_time_start).getTime()) / 1000));
+        return { ...row, open_time_elapsed: elapsed, open_time_amount: calculateOpenTimeAmount(elapsed) };
+      }
+      return { ...row, open_time_elapsed: 0, open_time_amount: 0 };
+    });
+    res.json(enriched);
   });
 });
 
@@ -149,7 +166,7 @@ router.post('/:id/add-time', (req, res) => {
 });
 
 // POST adjust timer by minutes (admin control, supports negative values)
-router.post('/:id/adjust-time', (req, res) => {
+router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const minutes = Number(req.body?.minutes);
 
@@ -179,6 +196,17 @@ router.post('/:id/adjust-time', (req, res) => {
           return res.status(500).json({ error: updateErr.message });
         }
 
+        // Log admin time adjustment as a transaction (amount = signed minutes)
+        db.run(
+          'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
+          [unitId, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct'],
+          (txErr) => {
+            if (txErr) {
+              console.error('Error recording admin adjustment transaction:', txErr);
+            }
+          }
+        );
+
         if (global.broadcast) {
           global.broadcast({
             type: 'UNIT_UPDATE',
@@ -205,7 +233,7 @@ router.post('/:id/adjust-time', (req, res) => {
 });
 
 // POST create/start session
-router.post('/:id/session/start', (req, res) => {
+router.post('/:id/session/start', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const startTime = new Date().toISOString();
 
@@ -236,7 +264,7 @@ router.post('/:id/session/start', (req, res) => {
 });
 
 // POST end session
-router.post('/:id/session/end', (req, res) => {
+router.post('/:id/session/end', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const endTime = new Date().toISOString();
 
@@ -283,7 +311,7 @@ router.post('/:id/session/end', (req, res) => {
 });
 
 // POST hardware control (turn on/off/shutdown/restart)
-router.post('/:id/control', (req, res) => {
+router.post('/:id/control', requireAdminAuth, (req, res) => {
   const { action } = req.body;
   const unitId = req.params.id;
 
@@ -336,8 +364,107 @@ router.get('/:id/hardware-log', (req, res) => {
   });
 });
 
+// POST start open-time session on a unit (admin only)
+// The unit is unlocked immediately and billing runs at ₱15/hour.
+router.post('/:id/open-time', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const startTime = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+
+    if (unit.open_time) {
+      return res.status(400).json({ error: 'Unit is already in open-time mode' });
+    }
+
+    db.run(
+      'UPDATE units SET open_time = 1, open_time_start = ?, status = ?, last_status_update = ? WHERE id = ?',
+      [startTime, 'Active', startTime, unitId],
+      (updateErr) => {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId),
+              open_time: 1,
+              open_time_start: startTime,
+              open_time_elapsed: 0,
+              open_time_amount: calculateOpenTimeAmount(0),
+              status: 'Active'
+            }
+          });
+        }
+
+        res.json({ message: 'Open time started', unit_id: parseInt(unitId), start_time: startTime });
+      }
+    );
+  });
+});
+
+// DELETE stop open-time session on a unit (admin only)
+// Logs a transaction for the amount owed and resets the unit to Idle.
+router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const stopTime = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+
+    if (!unit.open_time || !unit.open_time_start) {
+      return res.status(400).json({ error: 'Unit is not in open-time mode' });
+    }
+
+    const elapsedSeconds = Math.max(0, Math.floor((new Date(stopTime) - new Date(unit.open_time_start)) / 1000));
+    const amountOwed = calculateOpenTimeAmount(elapsedSeconds);
+    const elapsedMinutes = parseFloat((elapsedSeconds / 60).toFixed(4));
+
+    db.run(
+      'UPDATE units SET open_time = 0, open_time_start = NULL, status = ?, last_status_update = ? WHERE id = ?',
+      ['Idle', stopTime, unitId],
+      (updateErr) => {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+        // Log the session as a transaction (amount = pesos owed, denomination = elapsed minutes)
+        db.run(
+          'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
+          [unitId, amountOwed, elapsedMinutes, stopTime, 'open_time'],
+          (txErr) => {
+            if (txErr) console.error('Error recording open_time transaction:', txErr);
+          }
+        );
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId),
+              open_time: 0,
+              open_time_start: null,
+              open_time_elapsed: 0,
+              open_time_amount: 0,
+              status: 'Idle',
+              remaining_seconds: 0
+            }
+          });
+        }
+
+        res.json({
+          message: 'Open time stopped',
+          unit_id: parseInt(unitId),
+          elapsed_seconds: elapsedSeconds,
+          amount_owed: amountOwed
+        });
+      }
+    );
+  });
+});
+
 // PUT update unit details
-router.put('/:id', (req, res) => {
+router.put('/:id', requireAdminAuth, (req, res) => {
   const { name, mac_address, ip_address } = req.body;
   const unitId = req.params.id;
 
