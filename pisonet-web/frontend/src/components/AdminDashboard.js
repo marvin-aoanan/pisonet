@@ -21,14 +21,16 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField
+  TextField,
+  Divider,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   PowerSettingsNew as PowerIcon,
   Block as BlockIcon,
   AttachMoney as MoneyIcon,
   Computer as ComputerIcon,
-  WrapText
 } from '@mui/icons-material';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
@@ -45,6 +47,11 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
   const [timeDialogType, setTimeDialogType] = useState(null);
   const [timeDialogUnitId, setTimeDialogUnitId] = useState(null);
   const [timeDialogAmount, setTimeDialogAmount] = useState('');
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const compactChartWidth = isMobile ? 180 : 220;
+  const compactChartHeight = isMobile ? 180 : 200;
 
   const handleAction = async (unitId, action, callback) => {
     setLoading(unitId);
@@ -119,22 +126,6 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
       .map((row) => row.date)
       .reverse();
   }, [dailyRevenue]);
-
-  const sparklineSettings = useMemo(() => {
-    return {
-      data: sparklineData,
-      xAxis: [{ 
-        id: 'day-axis', 
-        scaleType: 'band', 
-        data: sparklineDates,
-        valueFormatter: (value) => {
-          if (!value) return '';
-          const date = new Date(value);
-          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        }
-      }],
-    };
-  }, [sparklineData, sparklineDates]);
 
   const todayKeyLocal = useMemo(() => {
     const now = new Date();
@@ -242,8 +233,8 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
 
   return (
     <Box>
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
+      <Grid container spacing={2} sx={{ mb: 4, flexDirection: isMobile ? 'column' : 'row' }}>
+        <Grid item xs={12} sm={12} md={3}>
           <Card>
             <CardContent sx={{ overflow: 'visible' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 0 }}>
@@ -252,7 +243,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   Active Units
                 </Typography>
               </Box>
-              <Box sx={{ position: 'relative', width: 220, height: 200, mx: 'auto' }}>
+              <Box sx={{ position: 'relative', width: '100%', maxWidth: compactChartWidth, height: compactChartHeight, mx: 'auto' }}>
                 <PieChart
                   series={[
                     {
@@ -264,8 +255,8 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                       ],
                     },
                   ]}
-                  width={220}
-                  height={200}
+                  width={compactChartWidth}
+                  height={compactChartHeight}
                   sx={{ '& .MuiChartsLegend-root': { display: 'none' } }}
                   slotProps={{ legend: { hidden: true } }}
                 />
@@ -291,10 +282,10 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid item xs={12} sm={12} md={3}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
+            <Grid container spacing={2} sx={{ flexDirection: isMobile ? 'column' : 'row' }}>
+              <Grid item xs={12} sm={12} md={6}>
                 <Card elevation={2}>
                   <CardContent sx={{ display: 'flex', alignItems: 'center' }}>
                     <MoneyIcon color="warning" sx={{ fontSize: 32, mr: 1.5 }} />
@@ -309,7 +300,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   </CardContent>
                 </Card>
               </Grid>
-              <Grid item xs={6}>
+              <Grid item xs={12} sm={12} md={6}>
                 <Card elevation={2}>
                   <CardContent sx={{ display: 'flex', alignItems: 'center' }}>
                     <MoneyIcon color="primary" sx={{ fontSize: 32, mr: 1.5 }} />
@@ -342,7 +333,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   <Box sx={{ }}>
                     <SparkLineChart
                       height={40}
-                      width={220}
+                      width={compactChartWidth}
                       area
                       showHighlight
                       showTooltip
@@ -423,37 +414,25 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
         </Grid>
       </Grid>
 
-      <TableContainer component={Paper} elevation={3}>
-        <Table sx={{ minWidth: 650 }} aria-label="admin table">
-          <TableHead>
-            <TableRow>
-              <TableCell>Unit Name</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Time Remaining</TableCell>
-              <TableCell align="right">Session Revenue</TableCell>
-              <TableCell align="center">Power Control</TableCell>
-              <TableCell align="center">Timer Control</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {units.map((unit) => (
-              <TableRow
-                key={unit.id}
-                sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-              >
-                <TableCell component="th" scope="row">
-                  <Typography variant="subtitle1" fontWeight="bold">
-                    {unit.name}
-                  </Typography>
-                </TableCell>
-                <TableCell>
-                  <Chip 
-                    label={unit.remaining_seconds > 0 ? 'ACTIVE' : 'IDLE'} 
-                    color={unit.remaining_seconds > 0 ? 'success' : 'default'} 
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell align="right">
+      {isMobile ? (
+        /* ── Mobile: one card per unit ── */
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {units.map((unit) => (
+            <Paper key={unit.id} elevation={2} sx={{ p: 2 }}>
+              {/* Header row: name + status */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                <Typography variant="subtitle1" fontWeight="bold">{unit.name}</Typography>
+                <Chip
+                  label={unit.remaining_seconds > 0 ? 'ACTIVE' : 'IDLE'}
+                  color={unit.remaining_seconds > 0 ? 'success' : 'default'}
+                  size="small"
+                />
+              </Box>
+
+              {/* Time + Revenue row */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">Time Remaining</Typography>
                   <Typography variant="h6" color={unit.open_time === 1 ? 'warning.main' : 'text.primary'}>
                     {unit.open_time === 1 ? formatTime(unit.open_time_elapsed || 0) : formatTime(unit.remaining_seconds)}
                   </Typography>
@@ -462,92 +441,187 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                       ₱{(unit.open_time_amount || 0).toFixed(2)} owed
                     </Typography>
                   )}
-                </TableCell>
-                <TableCell align="right">
-                  <Typography color="secondary.main" fontWeight="bold">
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="caption" color="text.secondary" display="block">Revenue</Typography>
+                  <Typography color="secondary.main" fontWeight="bold" variant="h6">
                     ₱{(unit.total_revenue || 0).toFixed(2)}
                   </Typography>
-                </TableCell>
-                <TableCell align="center">
-                  <ButtonGroup variant="outlined" size="small">
-                    <Tooltip title="Power ON">
-                      <Button 
-                        color="success"
-                        onClick={() => handleAction(unit.id, 'on', () => onControl(unit.id, 'on'))}
-                        disabled={loading === unit.id}
-                      >
-                        <PowerIcon fontSize="small" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="Graceful Shutdown">
-                      <Button 
-                        color="warning"
-                        onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))}
-                        disabled={loading === unit.id}
-                      >
-                        <BlockIcon fontSize="small" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip title="Force OFF (Relay)">
-                      <Button 
-                        color="error"
-                        onClick={() => handleAction(unit.id, 'off', () => onControl(unit.id, 'off'))}
-                        disabled={loading === unit.id}
-                      >
-                        <PowerIcon fontSize="small" />
-                      </Button>
-                    </Tooltip>
-                  </ButtonGroup>
-                </TableCell>
-                <TableCell align="center">
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center', width: 180, mx: 'auto' }}>
-                    <ButtonGroup variant="contained" size="small" sx={{ mb: 1, width: '100%' }}>
-                      <Button 
-                        color="warning"
-                        onClick={() => openTimeDialog(unit.id, 'deduct')}
-                        disabled={loading === unit.id || unit.open_time === 1}
-                        sx={{ flex: 1 }}
-                      >
-                        - Time
-                      </Button>
-                      <Button 
-                        onClick={() => openTimeDialog(unit.id, 'add')}
-                        disabled={loading === unit.id || unit.open_time === 1}
-                        sx={{ flex: 1 }}
-                      >
-                        + Time
-                      </Button>
-                    </ButtonGroup>
-                    {unit.open_time === 1 ? (
-                      <Button
-                        variant="contained"
-                        color="error"
-                        size="small"
-                        onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
-                        disabled={loading === unit.id}
-                        sx={{ width: '100%' }}
-                      >
-                        Stop Open Time
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="contained"
-                        color="warning"
-                        size="small"
-                        onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
-                        disabled={loading === unit.id}
-                        sx={{ width: '100%' }}
-                      >
-                        Open Time
-                      </Button>
-                    )}
-                  </Box>
-                </TableCell>
+                </Box>
+              </Box>
+
+              <Divider sx={{ mb: 1.5 }} />
+
+              {/* Power Control */}
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Power Control</Typography>
+              <ButtonGroup variant="outlined" size="small" fullWidth sx={{ mb: 1.5 }}>
+                <Tooltip title="Power ON">
+                  <Button color="success" onClick={() => handleAction(unit.id, 'on', () => onControl(unit.id, 'on'))} disabled={loading === unit.id}>
+                    <PowerIcon fontSize="small" />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Graceful Shutdown">
+                  <Button color="warning" onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))} disabled={loading === unit.id}>
+                    <BlockIcon fontSize="small" />
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Force OFF (Relay)">
+                  <Button color="error" onClick={() => handleAction(unit.id, 'off', () => onControl(unit.id, 'off'))} disabled={loading === unit.id}>
+                    <PowerIcon fontSize="small" />
+                  </Button>
+                </Tooltip>
+              </ButtonGroup>
+
+              {/* Timer Control */}
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Timer Control</Typography>
+              <ButtonGroup variant="contained" size="small" fullWidth sx={{ mb: 1 }}>
+                <Button color="warning" onClick={() => openTimeDialog(unit.id, 'deduct')} disabled={loading === unit.id || unit.open_time === 1} sx={{ flex: 1 }}>
+                  - Time
+                </Button>
+                <Button onClick={() => openTimeDialog(unit.id, 'add')} disabled={loading === unit.id || unit.open_time === 1} sx={{ flex: 1 }}>
+                  + Time
+                </Button>
+              </ButtonGroup>
+              {unit.open_time === 1 ? (
+                <Button variant="contained" color="error" size="small" fullWidth onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))} disabled={loading === unit.id}>
+                  Stop Open Time
+                </Button>
+              ) : (
+                <Button variant="contained" color="success" size="small" fullWidth onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))} disabled={loading === unit.id}>
+                  Open Time
+                </Button>
+              )}
+            </Paper>
+          ))}
+        </Box>
+      ) : (
+        /* ── Desktop: scrollable table ── */
+        <TableContainer component={Paper} elevation={3} sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 650 }} aria-label="admin table">
+            <TableHead>
+              <TableRow>
+                <TableCell>Unit Name</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Time Remaining</TableCell>
+                <TableCell align="right">Session Revenue</TableCell>
+                <TableCell align="center">Power Control</TableCell>
+                <TableCell align="center">Timer Control</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {units.map((unit) => (
+                <TableRow
+                  key={unit.id}
+                  sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                >
+                  <TableCell component="th" scope="row">
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {unit.name}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={unit.remaining_seconds > 0 ? 'ACTIVE' : 'IDLE'}
+                      color={unit.remaining_seconds > 0 ? 'success' : 'default'}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="h6" color={unit.open_time === 1 ? 'warning.main' : 'text.primary'}>
+                      {unit.open_time === 1 ? formatTime(unit.open_time_elapsed || 0) : formatTime(unit.remaining_seconds)}
+                    </Typography>
+                    {unit.open_time === 1 && (
+                      <Typography variant="caption" color="warning.main" display="block">
+                        ₱{(unit.open_time_amount || 0).toFixed(2)} owed
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography color="secondary.main" fontWeight="bold">
+                      ₱{(unit.total_revenue || 0).toFixed(2)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <ButtonGroup variant="outlined" size="small">
+                      <Tooltip title="Power ON">
+                        <Button
+                          color="success"
+                          onClick={() => handleAction(unit.id, 'on', () => onControl(unit.id, 'on'))}
+                          disabled={loading === unit.id}
+                        >
+                          <PowerIcon fontSize="small" />
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Graceful Shutdown">
+                        <Button
+                          color="warning"
+                          onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))}
+                          disabled={loading === unit.id}
+                        >
+                          <BlockIcon fontSize="small" />
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Force OFF (Relay)">
+                        <Button
+                          color="error"
+                          onClick={() => handleAction(unit.id, 'off', () => onControl(unit.id, 'off'))}
+                          disabled={loading === unit.id}
+                        >
+                          <PowerIcon fontSize="small" />
+                        </Button>
+                      </Tooltip>
+                    </ButtonGroup>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center', width: 180, mx: 'auto' }}>
+                      <ButtonGroup variant="contained" size="small" sx={{ mb: 1, width: '100%' }}>
+                        <Button
+                          color="warning"
+                          onClick={() => openTimeDialog(unit.id, 'deduct')}
+                          disabled={loading === unit.id || unit.open_time === 1}
+                          sx={{ flex: 1 }}
+                        >
+                          - Time
+                        </Button>
+                        <Button
+                          onClick={() => openTimeDialog(unit.id, 'add')}
+                          disabled={loading === unit.id || unit.open_time === 1}
+                          sx={{ flex: 1 }}
+                        >
+                          + Time
+                        </Button>
+                      </ButtonGroup>
+                      {unit.open_time === 1 ? (
+                        <Button
+                          variant="contained"
+                          color="error"
+                          size="small"
+                          onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
+                          disabled={loading === unit.id}
+                          sx={{ width: '100%' }}
+                        >
+                          Stop Open Time
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          color="success"
+                          size="small"
+                          onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
+                          disabled={loading === unit.id}
+                          sx={{ width: '100%' }}
+                        >
+                          Open Time
+                        </Button>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
 
       <Dialog open={timeDialogOpen} onClose={closeTimeDialog} maxWidth="xs" fullWidth>
         <DialogTitle>

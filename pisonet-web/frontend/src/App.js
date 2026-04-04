@@ -19,6 +19,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  useMediaQuery,
   createTheme,
   ThemeProvider,
   CssBaseline
@@ -83,6 +84,8 @@ const REFRESH_INTERVAL = 1001; // Refresh every 1 second
 const RECONNECT_INTERVAL = 5000; // Try to reconnect every 5 seconds
 
 function App() {
+  const isMobileHeader = useMediaQuery('(max-width:600px)');
+
   // State
   const [units, setUnits] = useState([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
@@ -472,34 +475,67 @@ function App() {
       <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         {/* Header */}
         <AppBar position="static">
-          <Toolbar>
-            <MonitorIcon sx={{ mr: 2 }} />
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-              PisoNet Manager
-            </Typography>
-            
-            {/* Connection Status */}
-            <Chip 
-              icon={wsConnected ? <WifiIcon /> : <WifiOffIcon />}
-              label={wsConnected ? 'Live Updates' : 'Offline'}
-              color={wsConnected ? 'success' : 'error'}
-              variant="outlined"
-              sx={{ mr: 2 }}
-            />
+          <Toolbar sx={{ py: { xs: 1, sm: 0 }, px: { xs: 1.5, sm: 2 }, flexWrap: 'nowrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flexGrow: 1 }}>
+              {/* Connection Status */}
+              <Chip
+                icon={wsConnected ? <WifiIcon /> : <WifiOffIcon />}
+                label={isMobileHeader ? '' : (wsConnected ? 'Live' : 'Offline')}
+                color={wsConnected ? 'success' : 'error'}
+                variant="outlined"
+                size="small"
+                sx={{
+                  mr: 1,
+                  flexShrink: 0,
+                  width: isMobileHeader ? 30 : 'auto',
+                  height: isMobileHeader ? 30 : 'auto',
+                  px: isMobileHeader ? 0 : undefined,
+                  '& .MuiChip-label': {
+                    px: isMobileHeader ? 0 : 1,
+                    display: isMobileHeader ? 'none' : 'inline'
+                  },
+                  '& .MuiChip-icon': {
+                    mr: isMobileHeader ? 0 : undefined,
+                    ml: isMobileHeader ? 0 : undefined,
+                    fontSize: isMobileHeader ? 18 : undefined
+                  }
+                }}
+              />
+              <MonitorIcon sx={{ mr: 1.25 }} />
+              <Typography
+                variant="h6"
+                component="div"
+                sx={{
+                  fontSize: { xs: '1rem', sm: '1.25rem' },
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                PisoNet Manager
+              </Typography>
+            </Box>
 
-            {/* Revenue Display */}
-            <Typography variant="h6" sx={{ mr: 2, color: 'secondary.main', fontWeight: 'bold' }}>
-              ₱{totalRevenue.toFixed(2)}
-            </Typography>
-
-            {/* View Toggle */}
-            <Button 
-              color="inherit" 
-              onClick={handleAdminToggle}
-              startIcon={viewMode === 'customer' ? <TimelineIcon /> : <MonitorIcon />}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
             >
-              {viewMode === 'customer' ? 'Admin Dashboard' : 'Customer View'}
-            </Button>
+              {/* View Toggle */}
+              <Button
+                color="inherit"
+                startIcon={isMobileHeader ? undefined : (viewMode === 'customer' ? <TimelineIcon /> : <MonitorIcon />)}
+                onClick={handleAdminToggle}
+                sx={{ whiteSpace: 'nowrap', minWidth: isMobileHeader ? 'auto' : 64, px: isMobileHeader ? 1 : 1.5 }}
+                size="small"
+              >
+                {isMobileHeader
+                  ? (viewMode === 'customer' ? 'Admin' : 'User')
+                  : (viewMode === 'customer' ? 'Admin Dashboard' : 'Customer View')}
+              </Button>
+            </Box>
           </Toolbar>
         </AppBar>
 

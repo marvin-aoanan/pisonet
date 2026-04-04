@@ -17,13 +17,17 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import { Save as SaveIcon } from '@mui/icons-material';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
 function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [settings, setSettings] = useState({});
   const [units, setUnits] = useState([]);
   const [activeTab, setActiveTab] = useState(0);
@@ -37,7 +41,8 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const saveButtonSx = {
-    minWidth: 210
+    minWidth: 210,
+    width: isMobile ? '100%' : 'auto'
   };
 
   useEffect(() => {
@@ -189,7 +194,15 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
           onChange={(event, nextTab) => setActiveTab(nextTab)}
           variant="scrollable"
           scrollButtons="auto"
-          sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}
+          sx={{ 
+            borderBottom: 1, 
+            borderColor: 'divider', 
+            px: 1,
+            '& .MuiTab-root': {
+              fontSize: isMobile ? '0.75rem' : '0.875rem',
+              minWidth: isMobile ? 'auto' : 'auto'
+            }
+          }}
         >
           <Tab label="Pricing & Time Settings" />
           <Tab label="Admin Password" />
@@ -268,7 +281,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
             <Divider />
 
             {/* Save */}
-            <Box>
+            <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start' }}>
               <Button
                 variant="contained"
                 startIcon={<SaveIcon />}
@@ -320,7 +333,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
             <Divider />
 
             {/* Save */}
-            <Box>
+            <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start' }}>
               <Button
                 variant="contained"
                 startIcon={<SaveIcon />}
@@ -392,7 +405,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
               </Table>
             </TableContainer>
 
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start', mt: 2 }}>
               <Button
                 variant="contained"
                 startIcon={<SaveIcon />}

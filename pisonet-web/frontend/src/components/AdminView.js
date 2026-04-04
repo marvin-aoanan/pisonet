@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import {
   Box,
   Tabs,
-  Tab
+  Tab,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -21,7 +23,7 @@ import AdminSettings from './AdminSettings';
 
 
 function TabPanel(props) {
-  const { children, value, index, ...other } = props;
+  const { children, value, index, isMobile, ...other } = props;
 
   return (
     <div
@@ -32,7 +34,7 @@ function TabPanel(props) {
       {...other}
     >
       {value === index && (
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: isMobile ? 1.5 : 3 }}>
           {children}
         </Box>
       )}
@@ -42,6 +44,8 @@ function TabPanel(props) {
 
 function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime, adminPassword, onAdminPasswordChanged }) {
   const [value, setValue] = useState(0);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const handleChange = (event, newValue) => {
     setValue(newValue);
@@ -50,16 +54,24 @@ function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onSt
   return (
     <Box sx={{ width: '100%' }}>
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={value} onChange={handleChange} aria-label="admin tabs">
-          <Tab icon={<DashboardIcon />} iconPosition="start" label="Dashboard" />
-          <Tab icon={<TransactionIcon />} iconPosition="start" label="Transactions" />
-          <Tab icon={<ReportsIcon />} iconPosition="start" label="Reports" />
-          <Tab icon={<CoinsOutIcon />} iconPosition="start" label="Coins Out" />
-          <Tab icon={<SettingsIcon />} iconPosition="start" label="Settings" />
+        <Tabs
+          value={value}
+          onChange={handleChange}
+          aria-label="admin tabs"
+          variant={isMobile ? 'scrollable' : 'standard'}
+          allowScrollButtonsMobile
+          scrollButtons={isMobile ? 'auto' : false}
+          sx={{ minHeight: isMobile ? 44 : 48 }}
+        >
+          <Tab icon={<DashboardIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Dashboard" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<TransactionIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Transactions" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<ReportsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Reports" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<CoinsOutIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Coins Out" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<SettingsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Settings" sx={{ minHeight: isMobile ? 44 : 48 }} />
         </Tabs>
       </Box>
 
-      <TabPanel value={value} index={0}>
+      <TabPanel value={value} index={0} isMobile={isMobile}>
         <AdminDashboard 
           units={units}
           totalRevenue={totalRevenue}
@@ -69,16 +81,16 @@ function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onSt
           onStopOpenTime={onStopOpenTime}
         />
       </TabPanel>
-      <TabPanel value={value} index={1}>
+      <TabPanel value={value} index={1} isMobile={isMobile}>
         <AdminTransactions adminPassword={adminPassword} />
       </TabPanel>
-      <TabPanel value={value} index={2}>
+      <TabPanel value={value} index={2} isMobile={isMobile}>
         <AdminReports />
       </TabPanel>
-      <TabPanel value={value} index={3}>
+      <TabPanel value={value} index={3} isMobile={isMobile}>
         <AdminCoinsOut adminPassword={adminPassword} />
       </TabPanel>
-      <TabPanel value={value} index={4}>
+      <TabPanel value={value} index={4} isMobile={isMobile}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

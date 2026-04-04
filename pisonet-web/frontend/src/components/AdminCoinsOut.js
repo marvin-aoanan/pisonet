@@ -7,12 +7,16 @@ import {
   Button,
   TextField,
   Divider,
-  Snackbar
+  Snackbar,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
 function AdminCoinsOut({ adminPassword }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [coinsOutLoading, setCoinsOutLoading] = useState(false);
   const [backups, setBackups] = useState([]);
   const [selectedBackup, setSelectedBackup] = useState('');
@@ -25,7 +29,8 @@ function AdminCoinsOut({ adminPassword }) {
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const actionButtonSx = {
-    minWidth: 210
+    minWidth: 210,
+    width: isMobile ? '100%' : 'auto'
   };
 
   useEffect(() => {
@@ -196,17 +201,23 @@ function AdminCoinsOut({ adminPassword }) {
     setReportActionLoading(true);
     try {
       const response = await axios.get(
-        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/html?print=1`,
+        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/pdf`,
         {
           headers: { 'x-admin-password': adminPassword },
           responseType: 'blob'
         }
       );
 
-      const htmlBlob = new Blob([response.data], { type: 'text/html' });
-      const htmlUrl = window.URL.createObjectURL(htmlBlob);
-      window.open(htmlUrl, '_blank', 'noopener,noreferrer');
-      setTimeout(() => window.URL.revokeObjectURL(htmlUrl), 60_000);
+      const pdfBlob = new Blob([response.data], { type: 'application/pdf' });
+      const pdfUrl = window.URL.createObjectURL(pdfBlob);
+      const pdfName = selectedReport.replace(/\.json$/i, '.pdf');
+      const anchor = document.createElement('a');
+      anchor.href = pdfUrl;
+      anchor.download = pdfName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      setTimeout(() => window.URL.revokeObjectURL(pdfUrl), 60_000);
     } catch (err) {
       const errorText = err?.response?.data?.error || 'Failed to download PDF report';
       console.error('Error downloading PDF report:', err);
@@ -303,7 +314,7 @@ function AdminCoinsOut({ adminPassword }) {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Coins Out will generate a final report, create a DB backup, then clear transactions and sessions.
+            Coins Out will generate a final report, create a DB backup, then clear transactions and sessions. Make sure no active sessions are running before proceeding. Always verify the generated final report and backup files after Coins Out completes.
           </Alert>
           <Button
             variant="contained"
@@ -344,11 +355,12 @@ function AdminCoinsOut({ adminPassword }) {
               )}
             </TextField>
 
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: isMobile ? 'wrap' : 'nowrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
               <Button
                 variant="outlined"
                 onClick={fetchFinalReports}
                 disabled={reportsLoading || reportActionLoading}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 {reportsLoading ? 'Refreshing...' : 'Refresh Final Reports'}
               </Button>
@@ -356,6 +368,7 @@ function AdminCoinsOut({ adminPassword }) {
                 variant="outlined"
                 onClick={handleViewFinalReportHtml}
                 disabled={reportActionLoading || reportsLoading || !selectedReport}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 {reportActionLoading ? 'Opening...' : 'View Report (HTML)'}
               </Button>
@@ -363,6 +376,7 @@ function AdminCoinsOut({ adminPassword }) {
                 variant="contained"
                 onClick={handleDownloadFinalReportPdf}
                 disabled={reportActionLoading || reportsLoading || !selectedReport}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 {reportActionLoading ? 'Opening...' : 'Save as PDF (HTML Layout)'}
               </Button>
@@ -398,11 +412,12 @@ function AdminCoinsOut({ adminPassword }) {
               )}
             </TextField>
 
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: isMobile ? 'wrap' : 'nowrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
               <Button
                 variant="outlined"
                 onClick={fetchBackups}
                 disabled={backupsLoading || restoreLoading}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 {backupsLoading ? 'Refreshing...' : 'Refresh Backup List'}
               </Button>
@@ -411,6 +426,7 @@ function AdminCoinsOut({ adminPassword }) {
                 color="warning"
                 onClick={handleRestoreBackup}
                 disabled={restoreLoading || backupsLoading || !selectedBackup}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 {restoreLoading ? 'Restoring...' : 'Restore Selected Backup'}
               </Button>
@@ -419,6 +435,7 @@ function AdminCoinsOut({ adminPassword }) {
                 color="secondary"
                 onClick={handleRestorePreviousState}
                 disabled={restoreLoading || backupsLoading || !backups.some((backup) => backup.file.startsWith('pre-restore-'))}
+                sx={{ width: isMobile ? '100%' : 'auto' }}
               >
                 Restore Previous State
               </Button>

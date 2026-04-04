@@ -26,7 +26,7 @@ function CoinDialog({ unit, insertedAmount = 0, onClose }) {
         <Box sx={{ textAlign: 'center', mb: 2 }}>
           <CoinIcon sx={{ fontSize: 52, color: 'secondary.main', mb: 1 }} />
           <Typography variant="body1" color="text.primary" sx={{ mb: 1 }}>
-            Waiting for coin acceptor input...
+            Coin acceptor is ready...
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Selected: {unit.name}

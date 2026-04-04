@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-04-01T19:13:18.388Z",
+  "totals": {
+    "estimated_total_revenue": 230,
+    "electricity_consumption": {
+      "estimated_usage_hours": 10.7739,
+      "estimated_kwh": 2.1548,
+      "estimated_cost": 25.8573,
+      "estimated_pc_wattage": 200,
+      "estimated_kwh_rate": 12
+    }
+  },
+  "revenue_breakdown_by_transaction_type": [
+    {
+      "transaction_type": "open_time",
+      "count": 2,
+      "total_amount": 145
+    },
+    {
+      "transaction_type": "admin_add",
+      "count": 4,
+      "total_amount": 114
+    },
+    {
+      "transaction_type": "admin_deduct",
+      "count": 3,
+      "total_amount": -29
+    }
+  ],
+  "transaction_count": 9,
+  "period": {
+    "start": "2026-03-31T18:26:55.297Z",
+    "end": "2026-04-01T19:07:33.985Z"
+  }
+}

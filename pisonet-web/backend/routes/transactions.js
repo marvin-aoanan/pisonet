@@ -196,6 +196,118 @@ router.get('/revenue/daily', (req, res) => {
   });
 });
 
+// GET revenue over time by unit (daily)
+router.get('/revenue/daily-by-unit', (req, res) => {
+  const days = parseInt(req.query.days, 10) || 30;
+
+  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    db.all(
+      `
+        SELECT id, name
+        FROM units
+        ORDER BY id ASC
+      `,
+      [],
+      (unitsErr, units) => {
+        if (unitsErr) {
+          return res.status(500).json({ error: unitsErr.message });
+        }
+
+        db.all(
+          `
+            SELECT
+              unit_id,
+              DATE(timestamp, 'localtime') as date,
+              amount,
+              denomination,
+              transaction_type
+            FROM transactions
+            WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', ?)
+            ORDER BY date ASC, unit_id ASC
+          `,
+          [`-${days} days`],
+          (txErr, rows) => {
+            if (txErr) {
+              return res.status(500).json({ error: txErr.message });
+            }
+
+            const unitMap = new Map((units || []).map((unit) => [Number(unit.id), unit]));
+            const dailyUnitMap = new Map();
+
+            for (const row of rows) {
+              const unitId = Number(row.unit_id);
+              const unit = unitMap.get(unitId);
+              if (!unit || !row.date) {
+                continue;
+              }
+
+              const key = `${row.date}::${unitId}`;
+              const existing = dailyUnitMap.get(key) || {
+                date: row.date,
+                id: unitId,
+                name: unit.name,
+                daily_revenue: 0,
+                daily_hours: 0,
+                transaction_count: 0,
+              };
+
+              existing.daily_revenue += Number(row.amount || 0);
+              existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
+              existing.transaction_count += 1;
+
+              dailyUnitMap.set(key, existing);
+            }
+
+            const dates = [];
+            const current = new Date();
+            current.setHours(0, 0, 0, 0);
+
+            for (let offset = days - 1; offset >= 0; offset -= 1) {
+              const date = new Date(current);
+              date.setDate(current.getDate() - offset);
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              const day = String(date.getDate()).padStart(2, '0');
+              dates.push(`${year}-${month}-${day}`);
+            }
+
+            const result = [];
+
+            for (const date of dates) {
+              for (const unit of units || []) {
+                const key = `${date}::${Number(unit.id)}`;
+                const values = dailyUnitMap.get(key) || {
+                  date,
+                  id: Number(unit.id),
+                  name: unit.name,
+                  daily_revenue: 0,
+                  daily_hours: 0,
+                  transaction_count: 0,
+                };
+
+                result.push({
+                  date: values.date,
+                  id: values.id,
+                  name: values.name,
+                  daily_revenue: Number(values.daily_revenue.toFixed(4)),
+                  daily_hours: Number(values.daily_hours.toFixed(4)),
+                  transaction_count: values.transaction_count,
+                });
+              }
+            }
+
+            return res.json(result);
+          }
+        );
+      }
+    );
+  });
+});
+
 // GET hourly revenue
 router.get('/revenue/hourly', (req, res) => {
   db.all(`
