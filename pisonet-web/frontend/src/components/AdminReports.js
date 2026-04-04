@@ -10,6 +10,7 @@ import {
   ToggleButtonGroup,
 } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { LineChart } from '@mui/x-charts/LineChart';
 import { ChartsTooltipContainer, useAxesTooltip } from '@mui/x-charts/ChartsTooltip';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
@@ -539,9 +540,13 @@ function AdminReports() {
         </Typography>
         {!electricityByUnitRows.length && <LinearProgress sx={{ mb: 2 }} />}
         {electricityByUnitChartData.length > 0 && (
-          <BarChart
+          <LineChart
             dataset={electricityByUnitChartData}
             xAxis={[{ scaleType: 'band', dataKey: 'pc' }]}
+            yAxis={[
+              { id: 'kwhAxis', label: 'Estimated Consumption (kWh)' },
+              { id: 'costAxis', label: 'Estimated Cost (₱)', position: 'right' },
+            ]}
             slotProps={{
               legend: {
                 position: { vertical: 'bottom', horizontal: 'middle' },
@@ -551,6 +556,7 @@ function AdminReports() {
               {
                 dataKey: 'estimated_kwh',
                 label: 'Estimated Consumption (kWh)',
+                yAxisId: 'kwhAxis',
                 valueFormatter: (value) => {
                   const kwh = Number(value || 0);
                   return `${kwh.toFixed(2)} kWh`;
@@ -559,6 +565,7 @@ function AdminReports() {
               {
                 dataKey: 'estimated_cost',
                 label: `Estimated Cost (₱ @ ${Number(configuredRate).toFixed(2)}/kWh)`,
+                yAxisId: 'costAxis',
                 valueFormatter: (value) => {
                   const cost = Number(value || 0);
                   return `₱${cost.toFixed(2)}`;
@@ -600,9 +607,13 @@ function AdminReports() {
         {!electricityRows.length && <LinearProgress sx={{ mb: 2 }} />}
 
         {electricitySeries.length > 0 && (
-          <BarChart
+          <LineChart
             dataset={electricitySeries}
             xAxis={[{ scaleType: 'band', dataKey: 'label' }]}
+            yAxis={[
+              { id: 'kwhAxis', label: 'Estimated Consumption (kWh)' },
+              { id: 'costAxis', label: 'Estimated Cost (₱)', position: 'right' },
+            ]}
             slotProps={{
               legend: {
                 position: { vertical: 'bottom', horizontal: 'middle' },
@@ -611,6 +622,7 @@ function AdminReports() {
             series={[{
               dataKey: 'estimated_kwh',
               label: 'Estimated Consumption (kWh)',
+              yAxisId: 'kwhAxis',
               valueFormatter: (value) => {
                 const kwh = Number(value || 0);
                 return `${kwh.toFixed(2)} kWh`;
@@ -618,6 +630,7 @@ function AdminReports() {
             }, {
               dataKey: 'estimated_cost',
               label: `Estimated Cost (₱ @ ${Number(configuredRate).toFixed(2)}/kWh)`,
+              yAxisId: 'costAxis',
               valueFormatter: (value) => {
                 const cost = Number(value || 0);
                 return `₱${cost.toFixed(2)}`;
