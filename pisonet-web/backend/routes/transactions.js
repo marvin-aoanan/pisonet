@@ -18,6 +18,21 @@ function getElectricityUsageHours(row, pesoToSeconds) {
   return (amount * pesoToSeconds) / 3600;
 }
 
+function getNormalizedRevenueAmount(row, pesoToSeconds) {
+  const amount = Number(row?.amount || 0);
+  const type = row?.transaction_type;
+
+  if (type === 'admin_add' || type === 'admin_deduct') {
+    if (!Number.isFinite(pesoToSeconds) || pesoToSeconds <= 0) {
+      return 0;
+    }
+
+    return (amount * 60) / pesoToSeconds;
+  }
+
+  return amount;
+}
+
 function getElectricityMetrics(row, pesoToSeconds, wattage, ratePerKwh) {
   const usageHours = getElectricityUsageHours(row, pesoToSeconds);
   const estimatedKwh = (usageHours * wattage) / 1000;
@@ -123,7 +138,7 @@ router.get('/revenue/by-unit', (req, res) => {
         };
 
         if (row.transaction_id) {
-          existing.revenue += Number(row.amount || 0);
+          existing.revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
           existing.usage_hours += getElectricityUsageHours(row, pesoToSeconds);
           existing.transaction_count += 1;
         }
@@ -177,7 +192,7 @@ router.get('/revenue/daily', (req, res) => {
           transaction_count: 0,
         };
 
-        existing.daily_revenue += Number(row.amount || 0);
+        existing.daily_revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
         existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
         existing.transaction_count += 1;
         dailyMap.set(row.date, existing);
@@ -255,7 +270,7 @@ router.get('/revenue/daily-by-unit', (req, res) => {
                 transaction_count: 0,
               };
 
-              existing.daily_revenue += Number(row.amount || 0);
+              existing.daily_revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
               existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
               existing.transaction_count += 1;
 

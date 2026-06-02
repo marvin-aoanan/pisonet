@@ -202,6 +202,28 @@ function initializeDatabase() {
         console.error('Error adding units.open_time_start column:', err);
       }
     });
+    db.run('ALTER TABLE units ADD COLUMN open_time_paused INTEGER DEFAULT 0', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.open_time_paused column:', err);
+      }
+    });
+    db.run('ALTER TABLE units ADD COLUMN open_time_paused_at TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.open_time_paused_at column:', err);
+      }
+    });
+    db.run('ALTER TABLE units ADD COLUMN open_time_elapsed_base_seconds INTEGER DEFAULT 0', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.open_time_elapsed_base_seconds column:', err);
+      }
+    });
+
+    // Backward-compatible migration for pausing regular countdown timer.
+    db.run('ALTER TABLE units ADD COLUMN timer_paused INTEGER DEFAULT 0', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.timer_paused column:', err);
+      }
+    });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (

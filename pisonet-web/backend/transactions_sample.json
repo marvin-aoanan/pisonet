@@ -1,0 +1,3 @@
+[{"unit_id":2,"amount":60.0,"denomination":60,"transaction_type":"admin_add"},
+{"unit_id":7,"amount":40.0,"denomination":40,"transaction_type":"admin_add"},
+{"unit_id":1,"amount":5.0,"denomination":3.950000000000000177,"transaction_type":"open_time"}]

@@ -483,7 +483,7 @@ function AdminReports() {
               Total Hours: {totalChartHours.toFixed(2)} h
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Total Estimated Revenue: ₱{totalChartRevenue.toFixed(2)}
+              Total Revenue (admin adjustments normalized): ₱{totalChartRevenue.toFixed(2)}
             </Typography>
           </Box>
         </Box>

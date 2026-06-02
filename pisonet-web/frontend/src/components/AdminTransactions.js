@@ -61,8 +61,14 @@ function AdminTransactions({ adminPassword }) {
 
   const getEquivalentSeconds = (row) => {
     const amount = Number(row?.amount || 0);
+    const denomination = Number(row?.denomination || 0);
     const type = row?.transaction_type;
-    const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct' || type === 'open_time';
+
+    if (type === 'open_time') {
+      return Math.max(0, Math.floor(denomination * 60));
+    }
+
+    const isAdminAdjust = type === 'admin_add' || type === 'admin_deduct';
 
     if (isAdminAdjust) {
       return Math.max(0, Math.floor(amount * 60));

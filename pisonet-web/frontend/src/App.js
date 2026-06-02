@@ -424,6 +424,54 @@ function App() {
     }
   };
 
+  // Handle pause regular countdown timer without ending session (admin feature)
+  const handlePauseTimer = async (unitId) => {
+    try {
+      await axios.post(
+        `${API_URL}/units/${unitId}/timer/pause`,
+        {},
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setStatusMessage(`⏸️ Timer paused on PC ${unitId}`);
+      fetchUnits();
+    } catch (error) {
+      console.error('Error pausing timer:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
+      setStatusMessage('❌ Error pausing timer');
+      throw error;
+    }
+  };
+
+  // Handle resume regular countdown timer (admin feature)
+  const handleResumeTimer = async (unitId) => {
+    try {
+      await axios.post(
+        `${API_URL}/units/${unitId}/timer/resume`,
+        {},
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setStatusMessage(`▶️ Timer resumed on PC ${unitId}`);
+      fetchUnits();
+    } catch (error) {
+      console.error('Error resuming timer:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
+      setStatusMessage('❌ Error resuming timer');
+      throw error;
+    }
+  };
+
   const handleAdminToggle = () => {
     if (viewMode === 'admin') {
       setViewMode('customer');
@@ -569,6 +617,8 @@ function App() {
                   onAddTime={handleAddTime}
                   onOpenTime={handleOpenTime}
                   onStopOpenTime={handleStopOpenTime}
+                  onPauseTimer={handlePauseTimer}
+                  onResumeTimer={handleResumeTimer}
                   adminPassword={adminPassword}
                   onAdminPasswordChanged={setAdminPassword}
                 />

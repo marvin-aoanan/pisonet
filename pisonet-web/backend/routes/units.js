@@ -11,6 +11,27 @@ function calculateOpenTimeAmount(elapsedSeconds) {
   return billedBlocks * OPEN_TIME_BLOCK_PRICE;
 }
 
+function getOpenTimeMetrics(unit, nowMs = Date.now()) {
+  const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
+  const isPaused = Number(unit.open_time_paused || 0) === 1;
+
+  if (!unit.open_time) {
+    return { elapsedSeconds: 0, amountOwed: 0, isPaused: false };
+  }
+
+  let runningElapsed = 0;
+  if (!isPaused && unit.open_time_start) {
+    runningElapsed = Math.max(0, Math.floor((nowMs - new Date(unit.open_time_start).getTime()) / 1000));
+  }
+
+  const elapsedSeconds = baseElapsed + runningElapsed;
+  return {
+    elapsedSeconds,
+    amountOwed: calculateOpenTimeAmount(elapsedSeconds),
+    isPaused,
+  };
+}
+
 // GET all units with session info
 router.get('/', (req, res) => {
   db.all(`
@@ -24,11 +45,21 @@ router.get('/', (req, res) => {
     }
     const now = Date.now();
     const enriched = rows.map((row) => {
-      if (row.open_time && row.open_time_start) {
-        const elapsed = Math.max(0, Math.floor((now - new Date(row.open_time_start).getTime()) / 1000));
-        return { ...row, open_time_elapsed: elapsed, open_time_amount: calculateOpenTimeAmount(elapsed) };
+      if (row.open_time) {
+        const metrics = getOpenTimeMetrics(row, now);
+        return {
+          ...row,
+          open_time_paused: metrics.isPaused ? 1 : 0,
+          open_time_elapsed: metrics.elapsedSeconds,
+          open_time_amount: metrics.amountOwed,
+        };
       }
-      return { ...row, open_time_elapsed: 0, open_time_amount: 0 };
+      return {
+        ...row,
+        open_time_paused: 0,
+        open_time_elapsed: 0,
+        open_time_amount: 0,
+      };
     });
     res.json(enriched);
   });
@@ -116,12 +147,14 @@ router.post('/:id/add-time', (req, res) => {
       }
 
       const newSeconds = unit.remaining_seconds + secondsToAdd;
-      const newRevenue = unit.total_revenue + amount;
+      const startsNewSession = Number(unit.remaining_seconds || 0) <= 0 && Number(unit.open_time || 0) !== 1;
+      const newRevenue = startsNewSession ? Number(amount) : (Number(unit.total_revenue || 0) + Number(amount));
       const newStatus = newSeconds > 0 ? 'Active' : unit.status;
+      const newTimerPaused = newSeconds > 0 ? Number(unit.timer_paused || 0) : 0;
 
       db.run(
-        'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
-        [newSeconds, newRevenue, newStatus, new Date().toISOString(), unitId],
+        'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, timer_paused = ?, last_status_update = ? WHERE id = ?',
+        [newSeconds, newRevenue, newStatus, newTimerPaused, new Date().toISOString(), unitId],
         function(err) {
           if (err) {
             return res.status(500).json({ error: err.message });
@@ -147,6 +180,7 @@ router.post('/:id/add-time', (req, res) => {
                 id: parseInt(unitId),
                 remaining_seconds: newSeconds,
                 total_revenue: newRevenue,
+                timer_paused: newTimerPaused,
                 status: newStatus
               }
             });
@@ -188,10 +222,13 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
 
     const newSeconds = Math.max(0, (unit.remaining_seconds || 0) + deltaSeconds);
     const newStatus = newSeconds > 0 ? 'Active' : 'Idle';
+    const newTimerPaused = newSeconds > 0 ? Number(unit.timer_paused || 0) : 0;
+    const startsNewSession = Number(unit.remaining_seconds || 0) <= 0 && Number(unit.open_time || 0) !== 1 && newSeconds > 0;
+    const newRevenue = startsNewSession ? 0 : Number(unit.total_revenue || 0);
 
     db.run(
-      'UPDATE units SET remaining_seconds = ?, status = ?, last_status_update = ? WHERE id = ?',
-      [newSeconds, newStatus, new Date().toISOString(), unitId],
+      'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, timer_paused = ?, last_status_update = ? WHERE id = ?',
+      [newSeconds, newRevenue, newStatus, newTimerPaused, new Date().toISOString(), unitId],
       (updateErr) => {
         if (updateErr) {
           return res.status(500).json({ error: updateErr.message });
@@ -214,7 +251,8 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
             unit: {
               id: parseInt(unitId, 10),
               remaining_seconds: newSeconds,
-              total_revenue: unit.total_revenue,
+              timer_paused: newTimerPaused,
+              total_revenue: newRevenue,
               status: newStatus
             }
           });
@@ -228,6 +266,102 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
           new_remaining_seconds: newSeconds,
           status: newStatus
         });
+      }
+    );
+  });
+});
+
+// POST pause a regular countdown timer without ending session/open-time (admin only)
+router.post('/:id/timer/pause', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const now = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!unit) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+
+    if ((unit.remaining_seconds || 0) <= 0) {
+      return res.status(400).json({ error: 'Unit timer is not running' });
+    }
+
+    if (Number(unit.timer_paused || 0) === 1) {
+      return res.status(400).json({ error: 'Unit timer is already paused' });
+    }
+
+    db.run(
+      'UPDATE units SET timer_paused = 1, status = ?, last_status_update = ? WHERE id = ?',
+      ['Paused', now, unitId],
+      (updateErr) => {
+        if (updateErr) {
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId, 10),
+              remaining_seconds: unit.remaining_seconds,
+              timer_paused: 1,
+              status: 'Paused'
+            }
+          });
+        }
+
+        return res.json({ message: 'Timer paused', unit_id: parseInt(unitId, 10) });
+      }
+    );
+  });
+});
+
+// POST resume a regular countdown timer (admin only)
+router.post('/:id/timer/resume', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const now = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!unit) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+
+    if ((unit.remaining_seconds || 0) <= 0) {
+      return res.status(400).json({ error: 'Unit timer is not running' });
+    }
+
+    if (Number(unit.timer_paused || 0) !== 1) {
+      return res.status(400).json({ error: 'Unit timer is not paused' });
+    }
+
+    db.run(
+      'UPDATE units SET timer_paused = 0, status = ?, last_status_update = ? WHERE id = ?',
+      ['Active', now, unitId],
+      (updateErr) => {
+        if (updateErr) {
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId, 10),
+              remaining_seconds: unit.remaining_seconds,
+              timer_paused: 0,
+              status: 'Active'
+            }
+          });
+        }
+
+        return res.json({ message: 'Timer resumed', unit_id: parseInt(unitId, 10) });
       }
     );
   });
@@ -291,7 +425,7 @@ router.post('/:id/session/end', requireAdminAuth, (req, res) => {
           }
 
           db.run(
-            'UPDATE units SET status = ?, remaining_seconds = 0 WHERE id = ?',
+            'UPDATE units SET status = ?, remaining_seconds = 0, timer_paused = 0 WHERE id = ?',
             ['Idle', unitId],
             (err) => {
               if (err) console.error('Error updating unit status:', err);
@@ -369,19 +503,50 @@ router.get('/:id/hardware-log', (req, res) => {
 // The unit is unlocked immediately and billing runs at ₱15/hour.
 router.post('/:id/open-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
-  const startTime = new Date().toISOString();
+  const now = new Date().toISOString();
 
   db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
     if (unit.open_time) {
+      if (Number(unit.open_time_paused || 0) === 1) {
+        db.run(
+          'UPDATE units SET open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, status = ?, last_status_update = ? WHERE id = ?',
+          [now, 'Active', now, unitId],
+          (resumeErr) => {
+            if (resumeErr) return res.status(500).json({ error: resumeErr.message });
+
+            const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
+            if (global.broadcast) {
+              global.broadcast({
+                type: 'UNIT_UPDATE',
+                unit: {
+                  id: parseInt(unitId, 10),
+                  open_time: 1,
+                  open_time_start: now,
+                  open_time_paused: 0,
+                  open_time_paused_at: null,
+                  open_time_elapsed_base_seconds: baseElapsed,
+                  open_time_elapsed: baseElapsed,
+                  open_time_amount: calculateOpenTimeAmount(baseElapsed),
+                  status: 'Active'
+                }
+              });
+            }
+
+            return res.json({ message: 'Open time resumed', unit_id: parseInt(unitId, 10), start_time: now });
+          }
+        );
+        return;
+      }
+
       return res.status(400).json({ error: 'Unit is already in open-time mode' });
     }
 
     db.run(
-      'UPDATE units SET open_time = 1, open_time_start = ?, status = ?, last_status_update = ? WHERE id = ?',
-      [startTime, 'Active', startTime, unitId],
+      'UPDATE units SET open_time = 1, open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
+      [now, 0, 'Active', now, unitId],
       (updateErr) => {
         if (updateErr) return res.status(500).json({ error: updateErr.message });
 
@@ -391,15 +556,122 @@ router.post('/:id/open-time', requireAdminAuth, (req, res) => {
             unit: {
               id: parseInt(unitId),
               open_time: 1,
-              open_time_start: startTime,
+              open_time_start: now,
+              open_time_paused: 0,
+              open_time_paused_at: null,
+              open_time_elapsed_base_seconds: 0,
               open_time_elapsed: 0,
               open_time_amount: calculateOpenTimeAmount(0),
+              total_revenue: 0,
               status: 'Active'
             }
           });
         }
 
-        res.json({ message: 'Open time started', unit_id: parseInt(unitId), start_time: startTime });
+        res.json({ message: 'Open time started', unit_id: parseInt(unitId), start_time: now });
+      }
+    );
+  });
+});
+
+// POST pause open-time session without ending billing/session (admin only)
+router.post('/:id/open-time/pause', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const now = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+
+    if (!unit.open_time) {
+      return res.status(400).json({ error: 'Unit is not in open-time mode' });
+    }
+
+    if (Number(unit.open_time_paused || 0) === 1) {
+      return res.status(400).json({ error: 'Open time is already paused' });
+    }
+
+    const metrics = getOpenTimeMetrics(unit, new Date(now).getTime());
+    db.run(
+      'UPDATE units SET open_time_start = NULL, open_time_paused = 1, open_time_paused_at = ?, open_time_elapsed_base_seconds = ?, last_status_update = ? WHERE id = ?',
+      [now, metrics.elapsedSeconds, now, unitId],
+      (pauseErr) => {
+        if (pauseErr) return res.status(500).json({ error: pauseErr.message });
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId, 10),
+              open_time: 1,
+              open_time_start: null,
+              open_time_paused: 1,
+              open_time_paused_at: now,
+              open_time_elapsed_base_seconds: metrics.elapsedSeconds,
+              open_time_elapsed: metrics.elapsedSeconds,
+              open_time_amount: calculateOpenTimeAmount(metrics.elapsedSeconds),
+              status: unit.status || 'Active'
+            }
+          });
+        }
+
+        return res.json({
+          message: 'Open time paused',
+          unit_id: parseInt(unitId, 10),
+          paused_at: now,
+          elapsed_seconds: metrics.elapsedSeconds,
+        });
+      }
+    );
+  });
+});
+
+// POST resume open-time session without ending billing/session (admin only)
+router.post('/:id/open-time/resume', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const now = new Date().toISOString();
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+
+    if (!unit.open_time) {
+      return res.status(400).json({ error: 'Unit is not in open-time mode' });
+    }
+
+    if (Number(unit.open_time_paused || 0) !== 1) {
+      return res.status(400).json({ error: 'Open time is not paused' });
+    }
+
+    const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
+    db.run(
+      'UPDATE units SET open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, last_status_update = ? WHERE id = ?',
+      [now, now, unitId],
+      (resumeErr) => {
+        if (resumeErr) return res.status(500).json({ error: resumeErr.message });
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: parseInt(unitId, 10),
+              open_time: 1,
+              open_time_start: now,
+              open_time_paused: 0,
+              open_time_paused_at: null,
+              open_time_elapsed_base_seconds: baseElapsed,
+              open_time_elapsed: baseElapsed,
+              open_time_amount: calculateOpenTimeAmount(baseElapsed),
+              status: unit.status || 'Active'
+            }
+          });
+        }
+
+        return res.json({
+          message: 'Open time resumed',
+          unit_id: parseInt(unitId, 10),
+          resumed_at: now,
+        });
       }
     );
   });
@@ -415,17 +687,19 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
-    if (!unit.open_time || !unit.open_time_start) {
+    if (!unit.open_time) {
       return res.status(400).json({ error: 'Unit is not in open-time mode' });
     }
 
-    const elapsedSeconds = Math.max(0, Math.floor((new Date(stopTime) - new Date(unit.open_time_start)) / 1000));
+    const metrics = getOpenTimeMetrics(unit, new Date(stopTime).getTime());
+    const elapsedSeconds = metrics.elapsedSeconds;
     const amountOwed = calculateOpenTimeAmount(elapsedSeconds);
     const elapsedMinutes = parseFloat((elapsedSeconds / 60).toFixed(4));
+    const newRevenue = Number(unit.total_revenue || 0) + Number(amountOwed || 0);
 
     db.run(
-      'UPDATE units SET open_time = 0, open_time_start = NULL, status = ?, last_status_update = ? WHERE id = ?',
-      ['Idle', stopTime, unitId],
+      'UPDATE units SET open_time = 0, open_time_start = NULL, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
+      [newRevenue, 'Idle', stopTime, unitId],
       (updateErr) => {
         if (updateErr) return res.status(500).json({ error: updateErr.message });
 
@@ -445,8 +719,12 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
               id: parseInt(unitId),
               open_time: 0,
               open_time_start: null,
+              open_time_paused: 0,
+              open_time_paused_at: null,
+              open_time_elapsed_base_seconds: 0,
               open_time_elapsed: 0,
               open_time_amount: 0,
+              total_revenue: newRevenue,
               status: 'Idle',
               remaining_seconds: 0
             }
@@ -457,7 +735,8 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
           message: 'Open time stopped',
           unit_id: parseInt(unitId),
           elapsed_seconds: elapsedSeconds,
-          amount_owed: amountOwed
+          amount_owed: amountOwed,
+          session_revenue: newRevenue
         });
       }
     );

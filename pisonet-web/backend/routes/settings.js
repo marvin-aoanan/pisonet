@@ -589,11 +589,11 @@ router.post('/admin/coins-out', async (req, res) => {
     await dbRunAsync('DELETE FROM sessions');
     await dbRunAsync('DELETE FROM hardware_log');
     await dbRunAsync(
-      "UPDATE units SET status = 'Idle', remaining_seconds = 0, total_revenue = 0, open_time = 0, open_time_start = NULL, last_status_update = ?",
+      "UPDATE units SET status = 'Idle', remaining_seconds = 0, total_revenue = 0, timer_paused = 0, open_time = 0, open_time_start = NULL, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, last_status_update = ?",
       [nowIso]
     );
 
-    const resetUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, open_time, open_time_start FROM units ORDER BY id ASC');
+    const resetUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, timer_paused, open_time, open_time_start, open_time_paused, open_time_paused_at, open_time_elapsed_base_seconds FROM units ORDER BY id ASC');
     if (global.broadcast) {
       resetUnits.forEach((unit) => {
         global.broadcast({
@@ -603,8 +603,12 @@ router.post('/admin/coins-out', async (req, res) => {
             status: unit.status,
             remaining_seconds: unit.remaining_seconds,
             total_revenue: unit.total_revenue,
+            timer_paused: unit.timer_paused,
             open_time: unit.open_time,
             open_time_start: unit.open_time_start,
+            open_time_paused: unit.open_time_paused,
+            open_time_paused_at: unit.open_time_paused_at,
+            open_time_elapsed_base_seconds: unit.open_time_elapsed_base_seconds,
             open_time_elapsed: 0,
             open_time_amount: 0,
           }
@@ -722,7 +726,7 @@ router.post('/admin/restore-backup', async (req, res) => {
     // Restore runtime/in-memory DB, then persist to the default DB path.
     db.restoreFromFile(resolvedSourcePath);
 
-    const restoredUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, open_time, open_time_start FROM units ORDER BY id ASC');
+    const restoredUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, timer_paused, open_time, open_time_start, open_time_paused, open_time_paused_at, open_time_elapsed_base_seconds FROM units ORDER BY id ASC');
     if (global.broadcast) {
       restoredUnits.forEach((unit) => {
         global.broadcast({
@@ -732,8 +736,12 @@ router.post('/admin/restore-backup', async (req, res) => {
             status: unit.status,
             remaining_seconds: unit.remaining_seconds,
             total_revenue: unit.total_revenue,
+            timer_paused: unit.timer_paused,
             open_time: unit.open_time,
             open_time_start: unit.open_time_start,
+            open_time_paused: unit.open_time_paused,
+            open_time_paused_at: unit.open_time_paused_at,
+            open_time_elapsed_base_seconds: unit.open_time_elapsed_base_seconds,
           }
         });
       });

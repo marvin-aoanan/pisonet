@@ -39,7 +39,21 @@ import { areaElementClasses, lineElementClasses, chartsAxisHighlightClasses } fr
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
-function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime }) {
+function normalizeTransactionRevenue(tx, pesoToSeconds) {
+  const amount = Number(tx?.amount || 0);
+  const type = tx?.transaction_type;
+
+  if (type === 'admin_add' || type === 'admin_deduct') {
+    if (!pesoToSeconds || pesoToSeconds <= 0) {
+      return 0;
+    }
+    return (amount * 60) / pesoToSeconds;
+  }
+
+  return amount;
+}
+
+function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword }) {
   const [loading, setLoading] = useState(null);
   const [dailyRevenue, setDailyRevenue] = useState([]);
   const [weekIndex, setWeekIndex] = useState(null);
@@ -47,6 +61,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
   const [timeDialogType, setTimeDialogType] = useState(null);
   const [timeDialogUnitId, setTimeDialogUnitId] = useState(null);
   const [timeDialogAmount, setTimeDialogAmount] = useState('');
+  const [sessionRevenueByUnit, setSessionRevenueByUnit] = useState({});
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -99,8 +114,79 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
     return `${h}h ${m}m`;
   };
 
+  const isUnitActive = (unit) => {
+    return unit.open_time === 1 || Number(unit.remaining_seconds || 0) > 0 || String(unit.status || '').toLowerCase() === 'active';
+  };
+
+  const getSessionRevenueDisplay = (unit) => {
+    const unitId = Number(unit.id);
+    const activeCountdownRevenue = sessionRevenueByUnit[unitId];
+
+    if (Number(unit.open_time || 0) !== 1 && Number(unit.remaining_seconds || 0) > 0 && Number.isFinite(activeCountdownRevenue)) {
+      return activeCountdownRevenue;
+    }
+
+    const baseRevenue = Number(unit.total_revenue || 0);
+    if (unit.open_time === 1) {
+      return baseRevenue + Number(unit.open_time_amount || 0);
+    }
+    return baseRevenue;
+  };
+
   const activeUnits = units.filter(u => u.remaining_seconds > 0 || u.open_time === 1).length;
   const idleUnits = Math.max(units.length - activeUnits, 0);
+
+  useEffect(() => {
+    const fetchSessionRevenueByUnit = async () => {
+      try {
+        const activeCountdownUnits = (units || []).filter((unit) => Number(unit.open_time || 0) !== 1 && Number(unit.remaining_seconds || 0) > 0);
+        if (!activeCountdownUnits.length) {
+          setSessionRevenueByUnit({});
+          return;
+        }
+
+        let currentPesoToSeconds = 60;
+        if (adminPassword) {
+          try {
+            const settingsResponse = await axios.get(`${API_URL}/settings/peso_to_seconds`, {
+              headers: { 'x-admin-password': adminPassword }
+            });
+            const nextValue = Number(settingsResponse?.data?.value);
+            if (!Number.isNaN(nextValue) && nextValue > 0) {
+              currentPesoToSeconds = nextValue;
+            }
+          } catch (settingsErr) {
+            console.error('Error fetching peso_to_seconds for session revenue:', settingsErr);
+          }
+        }
+
+        const txResponse = await axios.get(`${API_URL}/transactions?limit=5000`);
+        const transactions = txResponse.data || [];
+
+        const nextMap = {};
+        activeCountdownUnits.forEach((unit) => {
+          const unitId = Number(unit.id);
+          const startTime = new Date(unit.last_status_update || 0).getTime();
+          const hasValidStart = Number.isFinite(startTime) && startTime > 0;
+
+          const revenue = transactions.reduce((sum, tx) => {
+            if (Number(tx?.unit_id) !== unitId) return sum;
+            const txTime = new Date(tx?.timestamp || 0).getTime();
+            if (hasValidStart && (!Number.isFinite(txTime) || txTime < startTime)) return sum;
+            return sum + normalizeTransactionRevenue(tx, currentPesoToSeconds);
+          }, 0);
+
+          nextMap[unitId] = revenue;
+        });
+
+        setSessionRevenueByUnit(nextMap);
+      } catch (err) {
+        console.error('Error computing session revenue by unit:', err);
+      }
+    };
+
+    fetchSessionRevenueByUnit();
+  }, [units, adminPassword]);
 
   useEffect(() => {
     const fetchDailyRevenue = async () => {
@@ -445,7 +531,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                 <Box sx={{ textAlign: 'right' }}>
                   <Typography variant="caption" color="text.secondary" display="block">Revenue</Typography>
                   <Typography color="secondary.main" fontWeight="bold" variant="h6">
-                    ₱{(unit.total_revenue || 0).toFixed(2)}
+                    ₱{getSessionRevenueDisplay(unit).toFixed(2)}
                   </Typography>
                 </Box>
               </Box>
@@ -482,15 +568,40 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   + Time
                 </Button>
               </ButtonGroup>
-              {unit.open_time === 1 ? (
-                <Button variant="contained" color="error" size="small" fullWidth onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))} disabled={loading === unit.id}>
-                  Stop Open Time
+              <ButtonGroup variant="contained" size="small" fullWidth>
+                <Button
+                  color="warning"
+                  onClick={() => handleAction(unit.id, unit.timer_paused === 1 ? 'resume_timer' : 'pause_timer', () => {
+                    if (unit.timer_paused === 1) {
+                      return onResumeTimer(unit.id);
+                    }
+                    return onPauseTimer(unit.id);
+                  })}
+                  disabled={loading === unit.id || unit.open_time === 1 || unit.remaining_seconds <= 0}
+                  sx={{ flex: 1 }}
+                >
+                  {unit.timer_paused === 1 ? 'Resume Time' : 'Pause Time'}
                 </Button>
-              ) : (
-                <Button variant="contained" color="success" size="small" fullWidth onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))} disabled={loading === unit.id}>
-                  Open Time
-                </Button>
-              )}
+                {unit.open_time === 1 ? (
+                  <Button
+                    color="error"
+                    onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
+                    disabled={loading === unit.id}
+                    sx={{ flex: 1 }}
+                  >
+                    Stop Open Time
+                  </Button>
+                ) : (
+                  <Button
+                    color="success"
+                    onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
+                    disabled={loading === unit.id || isUnitActive(unit)}
+                    sx={{ flex: 1 }}
+                  >
+                    Open Time
+                  </Button>
+                )}
+              </ButtonGroup>
             </Paper>
           ))}
         </Box>
@@ -538,7 +649,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   </TableCell>
                   <TableCell align="right">
                     <Typography color="secondary.main" fontWeight="bold">
-                      ₱{(unit.total_revenue || 0).toFixed(2)}
+                      ₱{getSessionRevenueDisplay(unit).toFixed(2)}
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
@@ -591,29 +702,40 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                           + Time
                         </Button>
                       </ButtonGroup>
-                      {unit.open_time === 1 ? (
+                      <ButtonGroup variant="contained" size="small" sx={{ width: '100%' }}>
                         <Button
-                          variant="contained"
-                          color="error"
-                          size="small"
-                          onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
-                          disabled={loading === unit.id}
-                          sx={{ width: '100%' }}
+                          color="warning"
+                          onClick={() => handleAction(unit.id, unit.timer_paused === 1 ? 'resume_timer' : 'pause_timer', () => {
+                            if (unit.timer_paused === 1) {
+                              return onResumeTimer(unit.id);
+                            }
+                            return onPauseTimer(unit.id);
+                          })}
+                          disabled={loading === unit.id || unit.open_time === 1 || unit.remaining_seconds <= 0}
+                          sx={{ flex: 1 }}
                         >
-                          Stop Open Time
+                          {unit.timer_paused === 1 ? 'Resume Time' : 'Pause Time'}
                         </Button>
-                      ) : (
-                        <Button
-                          variant="contained"
-                          color="success"
-                          size="small"
-                          onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
-                          disabled={loading === unit.id}
-                          sx={{ width: '100%' }}
-                        >
-                          Open Time
-                        </Button>
-                      )}
+                        {unit.open_time === 1 ? (
+                          <Button
+                            color="error"
+                            onClick={() => handleAction(unit.id, 'stop_open_time', () => onStopOpenTime(unit.id))}
+                            disabled={loading === unit.id}
+                            sx={{ flex: 1 }}
+                          >
+                            Stop Open Time
+                          </Button>
+                        ) : (
+                          <Button
+                            color="success"
+                            onClick={() => handleAction(unit.id, 'open_time', () => onOpenTime(unit.id))}
+                            disabled={loading === unit.id || isUnitActive(unit)}
+                            sx={{ flex: 1 }}
+                          >
+                            Open Time
+                          </Button>
+                        )}
+                      </ButtonGroup>
                     </Box>
                   </TableCell>
                 </TableRow>

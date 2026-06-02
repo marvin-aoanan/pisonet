@@ -106,7 +106,8 @@ function addCoinToUnit(unitId, amountValue, source = 'api', cb) {
       }
 
       const newSeconds = unit.remaining_seconds + secondsToAdd;
-      const newRevenue = unit.total_revenue + amountValue;
+      const startsNewSession = Number(unit.remaining_seconds || 0) <= 0 && Number(unit.open_time || 0) !== 1;
+      const newRevenue = startsNewSession ? Number(amountValue) : (Number(unit.total_revenue || 0) + Number(amountValue));
       const newStatus = newSeconds > 0 ? 'Active' : unit.status;
 
       db.run(
@@ -509,7 +510,7 @@ async function startServer() {
   await initializeCoinAcceptor();
 
   countdownTimer = setInterval(() => {
-    db.all('SELECT * FROM units WHERE remaining_seconds > 0', [], (err, units) => {
+    db.all('SELECT * FROM units WHERE remaining_seconds > 0 AND COALESCE(timer_paused, 0) = 0', [], (err, units) => {
       if (err) {
         console.error('Error fetching units for countdown:', err);
         return;
