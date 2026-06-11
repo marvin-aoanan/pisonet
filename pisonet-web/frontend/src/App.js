@@ -10,10 +10,8 @@ import {
   Chip, 
   CircularProgress,
   Alert,
-  Snackbar,
   Grid,
   Paper,
-  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -27,7 +25,6 @@ import {
 import {
   Monitor as MonitorIcon,
   Timeline as TimelineIcon,
-  Refresh as RefreshIcon,
   Wifi as WifiIcon,
   WifiOff as WifiOffIcon
 } from '@mui/icons-material';
@@ -206,7 +203,7 @@ function App() {
                 );
                 fetchTotalRevenue();
                 setStatusMessage(`💵 Coin inserted to ${data.unit.id}`);
-                if (showCoinDialog && selection.unit_id === data.unit.id) {
+                if (showCoinDialog && (selectedUnitId === data.unit.id || selection.unit_id === data.unit.id)) {
                   setInsertedAmount((prev) => prev + (data.amount || 0));
                 }
                 break;
@@ -217,10 +214,6 @@ function App() {
                   ...data.selection,
                   timeout_ms: prev.timeout_ms
                 }));
-                if (!data.selection?.unit_id) {
-                  setShowCoinDialog(false);
-                  setSelectedUnitId(null);
-                }
                 break;
 
               case 'HARDWARE_CONTROL':
@@ -278,7 +271,7 @@ function App() {
         wsInstance.close();
       }
     };
-  }, [fetchTotalRevenue, selection.unit_id, showCoinDialog]);
+  }, [fetchTotalRevenue, selectedUnitId, selection.unit_id, showCoinDialog]);
 
   // Periodic refresh of data
   useEffect(() => {
@@ -313,6 +306,7 @@ function App() {
       setSelection({ unit_id: null, expires_at: null, timeout_ms: selection.timeout_ms });
       setShowCoinDialog(false);
       setSelectedUnitId(null);
+      setInsertedAmount(0);
       setStatusMessage('Selection cancelled');
     } catch (error) {
       console.error('Error cancelling selection:', error);
@@ -528,7 +522,7 @@ function App() {
               {/* Connection Status */}
               <Chip
                 icon={wsConnected ? <WifiIcon /> : <WifiOffIcon />}
-                label={isMobileHeader ? '' : (wsConnected ? 'Live' : 'Offline')}
+                label={isMobileHeader ? '' : (wsConnected ? 'Online' : 'Offline')}
                 color={wsConnected ? 'success' : 'error'}
                 variant="outlined"
                 size="small"
@@ -560,7 +554,7 @@ function App() {
                   textOverflow: 'ellipsis'
                 }}
               >
-                PisoNet Manager
+                MJBY iCafe Timer & Management System
               </Typography>
             </Box>
 

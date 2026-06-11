@@ -11,10 +11,18 @@ import {
 import { MonetizationOn as CoinIcon } from '@mui/icons-material';
 
 function CoinDialog({ unit, insertedAmount = 0, onClose }) {
+  const handleDialogClose = (_event, reason) => {
+    if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+      return;
+    }
+    onClose();
+  };
+
   return (
     <Dialog 
       open={true} 
-      onClose={onClose}
+      onClose={handleDialogClose}
+      disableEscapeKeyDown
       fullWidth
       maxWidth="xs"
     >
@@ -25,23 +33,15 @@ function CoinDialog({ unit, insertedAmount = 0, onClose }) {
       <DialogContent>
         <Box sx={{ textAlign: 'center', mb: 2 }}>
           <CoinIcon sx={{ fontSize: 52, color: 'secondary.main', mb: 1 }} />
-          <Typography variant="body1" color="text.primary" sx={{ mb: 1 }}>
-            Coin acceptor is ready...
+          <Typography variant="h6" color="success.main" sx={{ mt: 0.5, fontWeight: 'bold' }}>
+            ₱{insertedAmount.toFixed(2)} inserted
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Selected: {unit.name}
-          </Typography>
-          {insertedAmount > 0 && (
-            <Typography variant="h6" color="success.main" sx={{ mt: 1.5, fontWeight: 'bold' }}>
-              ₱{insertedAmount.toFixed(2)} inserted
-            </Typography>
-          )}
         </Box>
       </DialogContent>
       
       <DialogActions>
         <Button onClick={onClose} color="error" fullWidth variant="contained">
-          Cancel Selection
+          Done
         </Button>
       </DialogActions>
     </Dialog>

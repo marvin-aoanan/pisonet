@@ -20,8 +20,6 @@ import AdminReports from './AdminReports';
 import AdminCoinsOut from './AdminCoinsOut';
 import AdminSettings from './AdminSettings';
 
-
-
 function TabPanel(props) {
   const { children, value, index, isMobile, ...other } = props;
 
