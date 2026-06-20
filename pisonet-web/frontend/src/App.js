@@ -300,17 +300,22 @@ function App() {
     }
   };
 
+  const resetCoinDialogState = () => {
+    setShowCoinDialog(false);
+    setSelectedUnitId(null);
+    setInsertedAmount(0);
+  };
+
   const handleCancelSelection = async () => {
     try {
       await axios.delete(`${API_URL}/kiosk/selection`);
       setSelection({ unit_id: null, expires_at: null, timeout_ms: selection.timeout_ms });
-      setShowCoinDialog(false);
-      setSelectedUnitId(null);
-      setInsertedAmount(0);
       setStatusMessage('Selection cancelled');
     } catch (error) {
       console.error('Error cancelling selection:', error);
       setStatusMessage('❌ Failed to cancel selection');
+    } finally {
+      resetCoinDialogState();
     }
   };
 
