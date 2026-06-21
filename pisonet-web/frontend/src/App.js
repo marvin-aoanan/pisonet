@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { 
   AppBar, 
@@ -90,6 +90,17 @@ function App() {
   const [showCoinDialog, setShowCoinDialog] = useState(false);
   const [insertedAmount, setInsertedAmount] = useState(0);
   const [selection, setSelection] = useState({ unit_id: null, expires_at: null, timeout_ms: 30000 });
+
+  // Refs to always hold the latest coin-dialog state inside the WebSocket closure
+  const showCoinDialogRef = useRef(false);
+  const selectedUnitIdRef = useRef(null);
+  const selectionUnitIdRef = useRef(null);
+
+  // Keep refs in sync with state so the WS handler never reads stale values
+  useEffect(() => { showCoinDialogRef.current = showCoinDialog; }, [showCoinDialog]);
+  useEffect(() => { selectedUnitIdRef.current = selectedUnitId; }, [selectedUnitId]);
+  useEffect(() => { selectionUnitIdRef.current = selection.unit_id; }, [selection.unit_id]);
+
   const [statusMessage, setStatusMessage] = useState('Initializing...');
   const [wsConnected, setWsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -203,7 +214,7 @@ function App() {
                 );
                 fetchTotalRevenue();
                 setStatusMessage(`💵 Coin inserted to ${data.unit.id}`);
-                if (showCoinDialog && (selectedUnitId === data.unit.id || selection.unit_id === data.unit.id)) {
+                if (showCoinDialogRef.current && (selectedUnitIdRef.current === data.unit.id || selectionUnitIdRef.current === data.unit.id)) {
                   setInsertedAmount((prev) => prev + (data.amount || 0));
                 }
                 break;
@@ -271,7 +282,7 @@ function App() {
         wsInstance.close();
       }
     };
-  }, [fetchTotalRevenue, selectedUnitId, selection.unit_id, showCoinDialog]);
+  }, [fetchTotalRevenue]);
 
   // Periodic refresh of data
   useEffect(() => {
