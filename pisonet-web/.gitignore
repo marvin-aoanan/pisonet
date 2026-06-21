@@ -70,7 +70,6 @@ temp/
 !.vscode/extensions.json
 
 # Frontend build
-frontend/build/
 frontend/.cache/
 frontend/node_modules/
 frontend/.chrome*
