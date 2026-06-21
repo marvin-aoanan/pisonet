@@ -96,11 +96,6 @@ function App() {
   const selectedUnitIdRef = useRef(null);
   const selectionUnitIdRef = useRef(null);
 
-  // Keep refs in sync with state so the WS handler never reads stale values
-  useEffect(() => { showCoinDialogRef.current = showCoinDialog; }, [showCoinDialog]);
-  useEffect(() => { selectedUnitIdRef.current = selectedUnitId; }, [selectedUnitId]);
-  useEffect(() => { selectionUnitIdRef.current = selection.unit_id; }, [selection.unit_id]);
-
   const [statusMessage, setStatusMessage] = useState('Initializing...');
   const [wsConnected, setWsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -225,6 +220,7 @@ function App() {
                   ...data.selection,
                   timeout_ms: prev.timeout_ms
                 }));
+                selectionUnitIdRef.current = data.selection?.unit_id ?? null;
                 break;
 
               case 'HARDWARE_CONTROL':
@@ -301,9 +297,12 @@ function App() {
     try {
       const response = await axios.post(`${API_URL}/kiosk/selection`, { unitId });
       setSelection(response.data);
+      selectionUnitIdRef.current = response.data?.unit_id ?? unitId;
       setSelectedUnitId(unitId);
+      selectedUnitIdRef.current = unitId;
       setInsertedAmount(0);
       setShowCoinDialog(true);
+      showCoinDialogRef.current = true;
       setStatusMessage(`🪙 Waiting for coin on PC ${unitId}`);
     } catch (error) {
       console.error('Error selecting unit:', error);
@@ -313,7 +312,9 @@ function App() {
 
   const resetCoinDialogState = () => {
     setShowCoinDialog(false);
+    showCoinDialogRef.current = false;
     setSelectedUnitId(null);
+    selectedUnitIdRef.current = null;
     setInsertedAmount(0);
   };
 
