@@ -209,7 +209,7 @@ function App() {
                 );
                 fetchTotalRevenue();
                 setStatusMessage(`💵 Coin inserted to ${data.unit.id}`);
-                if (showCoinDialogRef.current && (selectedUnitIdRef.current === data.unit.id || selectionUnitIdRef.current === data.unit.id)) {
+                if (showCoinDialogRef.current) {
                   setInsertedAmount((prev) => prev + (data.amount || 0));
                 }
                 break;

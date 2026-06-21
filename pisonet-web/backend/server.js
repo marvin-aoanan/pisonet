@@ -216,8 +216,15 @@ async function initializeCoinAcceptor() {
           console.error('Failed to apply coin event from coin acceptor:', err.message);
           return;
         }
-        // Keep the selection alive so subsequent coins on the same session are accepted.
-        // The selection is cleared explicitly when the user clicks Done (DELETE /kiosk/selection).
+        // Reset the selection timeout so the session stays alive for the full
+        // SELECTION_TIMEOUT_MS window after EACH coin, not just after the initial tap.
+        if (selectionTimeout) {
+          clearTimeout(selectionTimeout);
+        }
+        selectionTimeout = setTimeout(() => {
+          clearSelectedUnit('timeout');
+        }, SELECTION_TIMEOUT_MS);
+        selectionExpiresAt = new Date(Date.now() + SELECTION_TIMEOUT_MS).toISOString();
       });
     });
 
