@@ -216,8 +216,8 @@ async function initializeCoinAcceptor() {
           console.error('Failed to apply coin event from coin acceptor:', err.message);
           return;
         }
-
-        clearSelectedUnit('coin_applied');
+        // Keep the selection alive so subsequent coins on the same session are accepted.
+        // The selection is cleared explicitly when the user clicks Done (DELETE /kiosk/selection).
       });
     });
 
