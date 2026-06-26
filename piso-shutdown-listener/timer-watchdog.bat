@@ -6,10 +6,10 @@ set "EXE=timer-overlay.exe"
 set "RESTART_DELAY_SECONDS=2"
 
 set "UNIT=%TIMER_UNIT%"
-if not defined UNIT set "UNIT=1"
+rem If UNIT is not set, the overlay will auto-detect it from the client IP (192.168.1.151-160).
 
 set "SERVER=%TIMER_SERVER%"
-if not defined SERVER set "SERVER=192.168.254.144"
+if not defined SERVER set "SERVER=192.168.1.200"
 
 set "WSPORT=%TIMER_WSPORT%"
 if not defined WSPORT set "WSPORT=5001"
@@ -24,8 +24,13 @@ if not defined UNLOCK_PASSWORD set "UNLOCK_PASSWORD=44"
 set "BG_IMAGE=%TIMER_BG_IMAGE%"
 if not defined BG_IMAGE set "BG_IMAGE=D:\bg-timer-locked.png"
 
-set "ARGS=--unit=%UNIT% --server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=%UNLOCK_PASSWORD%"
-set "DISPLAY_ARGS=--unit=%UNIT% --server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=***"
+if defined UNIT (
+    set "ARGS=--unit=%UNIT% --server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=%UNLOCK_PASSWORD%"
+    set "DISPLAY_ARGS=--unit=%UNIT% --server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=***"
+) else (
+    set "ARGS=--server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=%UNLOCK_PASSWORD%"
+    set "DISPLAY_ARGS=--server=%SERVER% --wsport=%WSPORT% --grace=%GRACE% --unlock-password=***"
+)
 if defined BG_IMAGE (
     set "ARGS=%ARGS% --bg-image=\"%BG_IMAGE%\""
     set "DISPLAY_ARGS=%DISPLAY_ARGS% --bg-image=\"%BG_IMAGE%\""

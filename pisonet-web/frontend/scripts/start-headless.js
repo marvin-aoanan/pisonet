@@ -21,7 +21,9 @@ const chromeCandidates = [
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
   'google-chrome',
   'chromium',
-  'chromium-browser'
+  'chromium-browser',
+  '/Program Files/Google/Chrome/Application/chrome.exe',
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
 ].filter(Boolean);
 
 let devServerProcess = null;

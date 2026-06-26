@@ -507,7 +507,14 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
             <Paper key={unit.id} elevation={2} sx={{ p: 2 }}>
               {/* Header row: name + status */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-                <Typography variant="subtitle1" fontWeight="bold">{unit.name}</Typography>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold">{unit.name}</Typography>
+                  {unit.ip_address ? (
+                    <Typography variant="caption" color="success.main" display="block">● {unit.ip_address}</Typography>
+                  ) : (
+                    <Typography variant="caption" color="text.disabled" display="block">○ offline</Typography>
+                  )}
+                </Box>
                 <Chip
                   label={unit.remaining_seconds > 0 ? 'ACTIVE' : 'IDLE'}
                   color={unit.remaining_seconds > 0 ? 'success' : 'default'}
@@ -629,6 +636,11 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                     <Typography variant="subtitle1" fontWeight="bold">
                       {unit.name}
                     </Typography>
+                    {unit.ip_address ? (
+                      <Typography variant="caption" color="success.main" display="block">● {unit.ip_address}</Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled" display="block">○ offline</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Chip

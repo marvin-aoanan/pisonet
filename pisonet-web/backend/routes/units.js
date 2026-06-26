@@ -65,6 +65,16 @@ router.get('/', (req, res) => {
   });
 });
 
+// GET unit by client IP address (used by diskless clients in 192.168.1.151-160 range)
+router.get('/by-ip/:ip', (req, res) => {
+  const ip = req.params.ip;
+  db.get('SELECT * FROM units WHERE ip_address = ?', [ip], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: `No unit found for IP ${ip}` });
+    res.json(row);
+  });
+});
+
 // GET single unit with detailed info
 router.get('/:id', (req, res) => {
   const unitId = req.params.id;

@@ -418,11 +418,56 @@ app.get('/api/stats', (req, res) => {
 // WebSocket connections for real-time updates
 const clients = new Map();
 
+// Tracks which ws sockets belong to each IP-derived unit.
+const unitClients = new Map(); // unitId (number) → Set<ws>
+
+/**
+ * Map a client IP in the range 192.168.1.151-160 to a unit ID (1-10).
+ * Returns null if the IP is outside the expected diskless client range.
+ */
+function getUnitIdFromClientIp(ip) {
+  const cleanIp = String(ip || '').replace(/^::ffff:/, '');
+  const match = cleanIp.match(/^192\.168\.1\.(\d+)$/);
+  if (match) {
+    const last = parseInt(match[1], 10);
+    if (last >= 151 && last <= 160) return last - 150; // 151→1 … 160→10
+  }
+  return null;
+}
+
 wss.on('connection', (ws, req) => {
   const clientId = Date.now().toString();
   clients.set(clientId, ws);
-  
-  console.log(`✅ Client connected via WebSocket (ID: ${clientId}, Total: ${clients.size})`);
+
+  // Resolve the real client IP (handles reverse-proxied deployments).
+  const rawIp = ((req.headers['x-forwarded-for'] || '').split(',')[0].trim())
+    || req.socket.remoteAddress;
+  const clientIp = String(rawIp || '').replace(/^::ffff:/, '');
+  const unitId = getUnitIdFromClientIp(clientIp);
+
+  console.log(`✅ WebSocket connected (ID: ${clientId}, IP: ${clientIp}, Unit: ${unitId ?? 'unknown'}, Total: ${clients.size})`);
+
+  if (unitId) {
+    // Register under the derived unit.
+    if (!unitClients.has(unitId)) unitClients.set(unitId, new Set());
+    unitClients.get(unitId).add(ws);
+
+    // Persist IP so the admin dashboard shows which unit is online.
+    db.run('UPDATE units SET ip_address = ? WHERE id = ?', [clientIp, unitId], (err) => {
+      if (err) console.error(`Error updating ip_address for unit ${unitId}:`, err);
+    });
+
+    // Send this client its own unit's current state.
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+      if (!err && unit && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'initial_state',
+          data: [{ unit_id: unitId, remaining_seconds: unit.remaining_seconds || 0 }],
+          timestamp: new Date().toISOString()
+        }));
+      }
+    });
+  }
 
   // Send connection confirmation
   ws.send(JSON.stringify({
@@ -447,14 +492,30 @@ wss.on('connection', (ws, req) => {
     }
   });
 
+  const cleanupUnit = () => {
+    if (!unitId) return;
+    const unitSet = unitClients.get(unitId);
+    if (!unitSet) return;
+    unitSet.delete(ws);
+    if (unitSet.size === 0) {
+      unitClients.delete(unitId);
+      // Clear the persisted IP so admin can see the unit went offline.
+      db.run('UPDATE units SET ip_address = NULL WHERE id = ?', [unitId], (err) => {
+        if (err) console.error(`Error clearing ip_address for unit ${unitId}:`, err);
+      });
+    }
+  };
+
   ws.on('close', () => {
-    console.log(`👋 Client disconnected (ID: ${clientId}, Remaining: ${clients.size - 1})`);
+    console.log(`👋 WebSocket disconnected (ID: ${clientId}, IP: ${clientIp}, Remaining: ${clients.size - 1})`);
     clients.delete(clientId);
+    cleanupUnit();
   });
 
   ws.on('error', (error) => {
     console.error(`❌ WebSocket error (ID: ${clientId}):`, error.message);
     clients.delete(clientId);
+    cleanupUnit();
   });
 });
 

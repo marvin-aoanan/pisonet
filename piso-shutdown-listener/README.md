@@ -25,14 +25,14 @@ pip install websocket-client
 Basic command:
 
 ```bash
-python timer-overlay.py --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 --unlock-password=44
+python timer-overlay.py --unit=1 --server=192.168.1.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 If you do not want password in the command, use env var:
 
 ```powershell
 $env:PISONET_UNLOCK_PASSWORD = "44"
-python timer-overlay.py --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60
+python timer-overlay.py --unit=1 --server=192.168.1.200 --wsport=5001 --grace=60
 ```
 
 ## 4. Pre-Compiled EXE (Recommended for Client PCs)
@@ -50,7 +50,7 @@ Output file:
 Run on client PC:
 
 ```bat
-.\timer-overlay.exe --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 --unlock-password=44
+.\timer-overlay.exe --unit=1 --server=192.168.1.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 Notes:
@@ -95,7 +95,7 @@ To run `timer-overlay.exe` automatically when Windows starts, use one of these m
 ```batch
 @echo off
 cd /d "D:\pisonet\piso-shutdown-listener\dist"
-start .\timer-overlay.exe --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 --unlock-password=44
+start .\timer-overlay.exe --unit=1 --server=192.168.1.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 3. The batch file will run automatically when Windows starts
 
@@ -106,12 +106,12 @@ start .\timer-overlay.exe --unit=1 --server=192.168.254.110 --wsport=5001 --grac
 4. Set trigger to "At startup"
 5. Set action to "Start a program"
 6. Program: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe`
-7. Add arguments: `--unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 unlock-password=44`
+7. Add arguments: `--unit=1 --server=192.168.1.200 --wsport=5001 --grace=60 unlock-password=44`
 
 ### Option 3: Registry (For Current User)
 Add to registry at `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`:
 - Name: `TimerOverlay`
-- Value: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe --unit=1 --server=192.168.254.110 --wsport=5001 --grace=60 unlock-password=44`
+- Value: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe --unit=1 --server=192.168.1.200 --wsport=5001 --grace=60 unlock-password=44`
 
 **Recommendation:** Use **Option 1** (Startup folder) for simplicity, or **Option 2** (Task Scheduler) if you need logging and error handling.
 
@@ -204,7 +204,7 @@ The watchdog now reads settings from environment variables (with defaults).
 
 Supported variables:
 1. `TIMER_UNIT` (default: `1`)
-2. `TIMER_SERVER` (default: `192.168.254.201`)
+2. `TIMER_SERVER` (default: `192.168.1.200`)
 3. `TIMER_UNLOCK_PASSWORD` (fallback: `PISONET_UNLOCK_PASSWORD`, then default `44`)
 4. `TIMER_WSPORT` (default: `5001`)
 5. `TIMER_GRACE` (default: `60`)
@@ -216,7 +216,7 @@ Example:
 
 ```batch
 set "TIMER_UNIT=3"
-set "TIMER_SERVER=192.168.254.210"
+set "TIMER_SERVER=192.168.1.200"
 set "TIMER_UNLOCK_PASSWORD=1234"
 set "TIMER_BG_IMAGE=D:\bg-timer-locked.png"
 ```
