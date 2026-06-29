@@ -37,8 +37,8 @@ class TimerOverlay:
         self.remaining_seconds = 0
         self.shutdown_grace_seconds = shutdown_grace_seconds
         self.warning_seconds_left = shutdown_grace_seconds
-        self.warning_threshold_seconds = 120
-        self.critical_threshold_seconds = 60
+        self.warning_threshold_seconds = 300
+        self.critical_threshold_seconds = 120
         self.connected = False
         self.ws = None
         self.os_lock = os_lock
@@ -1196,6 +1196,8 @@ class TimerOverlay:
             self.bottom_spacer.configure(bg=self.bg_warning)
         elif self.remaining_seconds <= 0:
             self.exit_lockdown_ui()
+            self.root.attributes('-topmost', True)
+            self.root.lift()
             self.set_default_layout()
             self.hide_lock_background()
             self.root.attributes('-alpha', self.base_alpha)
@@ -1209,6 +1211,8 @@ class TimerOverlay:
             self.bottom_spacer.configure(bg=self.bg_critical)
         elif self.remaining_seconds <= self.critical_threshold_seconds:
             self.exit_lockdown_ui()
+            self.root.attributes('-topmost', True)
+            self.root.lift()
             self.set_default_layout()
             self.hide_lock_background()
             self.root.attributes('-alpha', self.base_alpha)
@@ -1228,6 +1232,8 @@ class TimerOverlay:
             self.bottom_spacer.configure(bg=self.bg_critical)
         elif self.remaining_seconds <= self.warning_threshold_seconds:
             self.exit_lockdown_ui()
+            self.root.attributes('-topmost', True)
+            self.root.lift()
             self.set_default_layout()
             self.hide_lock_background()
             self.root.attributes('-alpha', self.base_alpha)
