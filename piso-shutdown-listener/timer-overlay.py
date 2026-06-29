@@ -79,7 +79,7 @@ class TimerOverlay:
         self.install_windows_key_hook()
         
         # Window configuration
-        self.root.attributes('-topmost', True)  # Always on top
+        self.root.attributes('-topmost', False)  # Background window (not always on top)
         self.root.overrideredirect(True)  # Remove title bar and borders (headless overlay)
         
         # Set window size and position (top-right corner)
@@ -133,6 +133,9 @@ class TimerOverlay:
         # Create UI elements
         self.setup_ui()
         
+        # Push window to background so other apps appear in front
+        self.root.lower()
+
         # Start WebSocket connection in separate thread
         self.ws_thread = threading.Thread(target=self.connect_websocket, daemon=True)
         self.ws_thread.start()
@@ -674,7 +677,10 @@ class TimerOverlay:
             self.timer_label.configure(text=self.format_time(self.remaining_seconds))
         self.timer_label.place(relx=0.5, y=18, rely=0.0, anchor='center')
         self.root.geometry(self.minimized_geometry)
-        self.root.lift()
+        if self.warning_active:
+            self.root.lift()
+        else:
+            self.root.lower()
         self.is_minimized = True
         return "break"
 
@@ -693,7 +699,10 @@ class TimerOverlay:
         self.timer_label.configure(font=self.timer_font_normal)
         self.minimize_btn.configure(text="-", font=self.minimize_btn_font_normal)
         self.minimize_btn.place(relx=1.0, x=-8, y=2, rely=0.0, anchor='ne')
-        self.root.lift()
+        if self.warning_active:
+            self.root.lift()
+        else:
+            self.root.lower()
         self.is_minimized = False
 
     def ensure_main_widgets_visible(self):
@@ -755,7 +764,10 @@ class TimerOverlay:
 
     def on_window_restore(self, event=None):
         self.root.overrideredirect(True)
-        self.root.attributes('-topmost', True)
+        if self.warning_active and not self.admin_unlocked:
+            self.root.attributes('-topmost', True)
+        else:
+            self.root.attributes('-topmost', False)
         if self.is_fullscreen:
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight()
@@ -767,7 +779,9 @@ class TimerOverlay:
 
         if self.warning_active:
             self.show_lock_background()
-        self.root.lift()
+            self.root.lift()
+        else:
+            self.root.lower()
 
     def enter_lockdown_ui(self):
         self.restore_from_minimized()
@@ -790,8 +804,9 @@ class TimerOverlay:
 
         self.is_lockdown_ui = False
         self.exit_fullscreen_mode()
-        self.root.attributes('-topmost', True)
+        self.root.attributes('-topmost', False)
         self.root.geometry(self.default_geometry)
+        self.root.lower()
 
     def enter_fullscreen_mode(self):
         if self.is_fullscreen:
