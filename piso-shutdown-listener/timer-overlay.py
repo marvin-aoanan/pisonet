@@ -1042,7 +1042,7 @@ class TimerOverlay:
 
         self.shutdown_triggered = True
         current_platform = sys.platform
-        print("Countdown finished. Shutting down now...")
+        print("Shutting down now...")
 
         try:
             if current_platform == 'win32':
@@ -1053,6 +1053,20 @@ class TimerOverlay:
                 self.run_command(['shutdown', '-h', 'now'])
         except Exception as error:
             print(f"Failed to execute shutdown: {error}")
+
+    def execute_restart_now(self):
+        current_platform = sys.platform
+        print("Restarting now...")
+
+        try:
+            if current_platform == 'win32':
+                self.run_command(['shutdown', '/r', '/f', '/t', '0'])
+            elif current_platform == 'darwin':
+                self.run_command(['sudo', 'shutdown', '-r', 'now'])
+            else:
+                self.run_command(['shutdown', '-r', 'now'])
+        except Exception as error:
+            print(f"Failed to execute restart: {error}")
 
     def cancel_shutdown(self, reason="New time received. Cancelling pending shutdown..."):
         if not self.shutdown_triggered:
@@ -1373,7 +1387,16 @@ class TimerOverlay:
                         self.admin_unlocked = False
                         self.reset_expired_state()
                     self.root.after(0, self.update_display)
-                    
+
+            elif data.get('type') == 'HARDWARE_CONTROL':
+                if int(data.get('unit_id', 0)) == self.unit_id:
+                    action = data.get('action', '')
+                    print(f"Hardware control command received: {action}")
+                    if action == 'shutdown':
+                        self.root.after(0, self.execute_shutdown_now)
+                    elif action == 'restart':
+                        self.root.after(0, self.execute_restart_now)
+
         except Exception as e:
             print(f"Error processing message: {e}")
     

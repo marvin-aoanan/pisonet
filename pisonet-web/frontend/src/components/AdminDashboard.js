@@ -31,6 +31,8 @@ import {
   Block as BlockIcon,
   AttachMoney as MoneyIcon,
   Computer as ComputerIcon,
+  Logout as LogoutIcon,
+  RestartAlt as RestartAltIcon,
 } from '@mui/icons-material';
 import { PieChart } from '@mui/x-charts/PieChart';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
@@ -548,18 +550,18 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
               {/* Power Control */}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Power Control</Typography>
               <ButtonGroup variant="outlined" size="small" fullWidth sx={{ mb: 1.5 }}>
-                <Tooltip title="Power ON">
-                  <Button color="success" onClick={() => handleAction(unit.id, 'on', () => onControl(unit.id, 'on'))} disabled={loading === unit.id}>
-                    <PowerIcon fontSize="small" />
+                <Tooltip title="Logout – Clear remaining time">
+                  <Button color="warning" onClick={() => handleAction(unit.id, 'logout', () => onControl(unit.id, 'logout'))} disabled={loading === unit.id}>
+                    <LogoutIcon fontSize="small" />
                   </Button>
                 </Tooltip>
-                <Tooltip title="Graceful Shutdown">
-                  <Button color="warning" onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))} disabled={loading === unit.id}>
-                    <BlockIcon fontSize="small" />
+                <Tooltip title="Restart PC">
+                  <Button color="info" onClick={() => handleAction(unit.id, 'restart', () => onControl(unit.id, 'restart'))} disabled={loading === unit.id}>
+                    <RestartAltIcon fontSize="small" />
                   </Button>
                 </Tooltip>
-                <Tooltip title="Force OFF (Relay)">
-                  <Button color="error" onClick={() => handleAction(unit.id, 'off', () => onControl(unit.id, 'off'))} disabled={loading === unit.id}>
+                <Tooltip title="Shutdown PC">
+                  <Button color="error" onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))} disabled={loading === unit.id}>
                     <PowerIcon fontSize="small" />
                   </Button>
                 </Tooltip>
@@ -666,28 +668,28 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   </TableCell>
                   <TableCell align="center">
                     <ButtonGroup variant="outlined" size="small">
-                      <Tooltip title="Power ON">
-                        <Button
-                          color="success"
-                          onClick={() => handleAction(unit.id, 'on', () => onControl(unit.id, 'on'))}
-                          disabled={loading === unit.id}
-                        >
-                          <PowerIcon fontSize="small" />
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title="Graceful Shutdown">
+                      <Tooltip title="Logout – Clear remaining time">
                         <Button
                           color="warning"
-                          onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))}
+                          onClick={() => handleAction(unit.id, 'logout', () => onControl(unit.id, 'logout'))}
                           disabled={loading === unit.id}
                         >
-                          <BlockIcon fontSize="small" />
+                          <LogoutIcon fontSize="small" />
                         </Button>
                       </Tooltip>
-                      <Tooltip title="Force OFF (Relay)">
+                      <Tooltip title="Restart PC">
+                        <Button
+                          color="info"
+                          onClick={() => handleAction(unit.id, 'restart', () => onControl(unit.id, 'restart'))}
+                          disabled={loading === unit.id}
+                        >
+                          <RestartAltIcon fontSize="small" />
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title="Shutdown PC">
                         <Button
                           color="error"
-                          onClick={() => handleAction(unit.id, 'off', () => onControl(unit.id, 'off'))}
+                          onClick={() => handleAction(unit.id, 'shutdown', () => onControl(unit.id, 'shutdown'))}
                           disabled={loading === unit.id}
                         >
                           <PowerIcon fontSize="small" />

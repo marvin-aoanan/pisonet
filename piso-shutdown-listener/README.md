@@ -58,7 +58,7 @@ Build command:
 ```
 
 Output file:
-- `dist\\timer-overlay.exe`
+- `dist\timer-overlay.exe`
 
 Run on client PC (unit auto-detected from IP on diskless clients):
 

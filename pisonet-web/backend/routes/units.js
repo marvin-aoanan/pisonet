@@ -455,13 +455,13 @@ router.post('/:id/session/end', requireAdminAuth, (req, res) => {
   );
 });
 
-// POST hardware control (turn on/off/shutdown/restart)
+// POST hardware control (logout/restart/shutdown + legacy on/off/lock/unlock)
 router.post('/:id/control', requireAdminAuth, (req, res) => {
   const { action } = req.body;
   const unitId = req.params.id;
 
-  if (!['on', 'off', 'shutdown', 'restart', 'lock', 'unlock'].includes(action)) {
-    return res.status(400).json({ error: 'Invalid action. Must be: on, off, shutdown, restart, lock, unlock' });
+  if (!['on', 'off', 'shutdown', 'restart', 'lock', 'unlock', 'logout'].includes(action)) {
+    return res.status(400).json({ error: 'Invalid action. Must be: logout, restart, shutdown, on, off, lock, unlock' });
   }
 
   // Log hardware action
@@ -473,22 +473,53 @@ router.post('/:id/control', requireAdminAuth, (req, res) => {
     }
   );
 
-  // Broadcast control command to clients
-  if (global.broadcast) {
-    global.broadcast({
-      type: 'HARDWARE_CONTROL',
+  const broadcastAndRespond = () => {
+    // Broadcast control command to the target unit's client
+    if (global.broadcast) {
+      global.broadcast({
+        type: 'HARDWARE_CONTROL',
+        unit_id: parseInt(unitId),
+        action,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      message: `${action.toUpperCase()} command sent to unit ${unitId}`,
       unit_id: parseInt(unitId),
       action,
       timestamp: new Date().toISOString()
     });
-  }
+  };
 
-  res.json({
-    message: `${action.toUpperCase()} command sent to unit ${unitId}`,
-    unit_id: parseInt(unitId),
-    action,
-    timestamp: new Date().toISOString()
-  });
+  if (action === 'logout') {
+    // Clear remaining time so the unit goes Idle immediately
+    db.run(
+      'UPDATE units SET remaining_seconds = 0, status = ?, timer_paused = 0, last_status_update = ? WHERE id = ?',
+      ['Idle', new Date().toISOString(), unitId],
+      (err) => {
+        if (err) console.error('Error clearing unit time on logout:', err);
+
+        // Notify all clients of the updated unit state
+        db.get('SELECT * FROM units WHERE id = ?', [unitId], (getErr, unit) => {
+          if (!getErr && unit && global.broadcast) {
+            global.broadcast({
+              type: 'UNIT_UPDATE',
+              unit: {
+                id: unit.id,
+                remaining_seconds: 0,
+                status: 'Idle',
+                timer_paused: 0
+              }
+            });
+          }
+          broadcastAndRespond();
+        });
+      }
+    );
+  } else {
+    broadcastAndRespond();
+  }
 });
 
 // GET hardware control log for unit
