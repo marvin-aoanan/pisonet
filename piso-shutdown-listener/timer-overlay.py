@@ -35,6 +35,9 @@ class TimerOverlay:
         self.ws_port = ws_port
         self.api_port = api_port if api_port is not None else ws_port
         self.remaining_seconds = 0
+        self.open_time_active = False
+        self.open_time_elapsed = 0
+        self.open_time_amount = 0
         self.shutdown_grace_seconds = shutdown_grace_seconds
         self.warning_seconds_left = shutdown_grace_seconds
         self.warning_threshold_seconds = 300
@@ -1120,7 +1123,8 @@ class TimerOverlay:
 
         self.ensure_main_widgets_visible()
 
-        is_zero_or_expired = self.remaining_seconds <= 0 and not self.admin_unlocked
+        # Don't treat as expired if in open_time mode
+        is_zero_or_expired = self.remaining_seconds <= 0 and not self.admin_unlocked and not self.open_time_active
         should_flash = self.remaining_seconds > 0 and self.remaining_seconds <= self.warning_threshold_seconds
         if should_flash:
             self.start_window_flash()
@@ -1134,6 +1138,9 @@ class TimerOverlay:
 
         if self.warning_active:
             self.timer_label.config(text=self.format_time(self.warning_seconds_left))
+        elif self.open_time_active:
+            # Display running time for open_time mode
+            self.timer_label.config(text=self.format_time(self.open_time_elapsed))
         else:
             self.timer_label.config(text=self.format_time(self.remaining_seconds))
 
@@ -1165,7 +1172,22 @@ class TimerOverlay:
             self.set_normal_window_size()
         
         # Update colors and status based on remaining time
-        if self.warning_active:
+        if self.open_time_active:
+            # OPEN TIME mode - show running time and amount owed
+            self.exit_lockdown_ui()
+            self.set_default_layout()
+            self.hide_lock_background()
+            self.root.attributes('-alpha', self.base_alpha)
+            self.root.configure(bg='#1a4d2e')  # Dark green for open time
+            self.pc_label.configure(bg='#1a4d2e', font=self.pc_font_normal)
+            self.timer_label.configure(fg='#00ff00', bg='#1a4d2e', font=self.timer_font_normal)
+            self.status_label.configure(text="OPEN TIME", fg='#00ff00', bg='#1a4d2e')
+            amount_text = f"Amount: ₱{self.open_time_amount:.2f}" if self.open_time_amount > 0 else "Amount: ₱0.00"
+            self.warning_label.configure(text=amount_text, fg='#90ee90', bg='#1a4d2e', font=self.warning_font_normal)
+            self.connection_indicator.configure(bg='#1a4d2e')
+            self.top_spacer.configure(bg='#1a4d2e')
+            self.bottom_spacer.configure(bg='#1a4d2e')
+        elif self.warning_active:
             self.enter_lockdown_ui()
             self.set_lock_layout()
             self.show_lock_background()
@@ -1286,7 +1308,7 @@ class TimerOverlay:
                 self.root.after(0, self.update_display)
             elif self.warning_active and self.warning_seconds_left <= 0 and not self.admin_unlocked:
                 self.execute_shutdown_now()
-            elif self.remaining_seconds <= 0 and not self.warning_active and not self.admin_unlocked:
+            elif self.remaining_seconds <= 0 and not self.warning_active and not self.admin_unlocked and not self.open_time_active:
                 if not self.warning_transition_scheduled:
                     self.warning_transition_scheduled = True
                     self.root.after(0, self.begin_shutdown_warning)
@@ -1380,7 +1402,14 @@ class TimerOverlay:
                 unit = data.get('unit', {})
                 if int(unit.get('id', 0)) == self.unit_id:
                     self.remaining_seconds = int(unit.get('remaining_seconds', 0) or 0)
-                    if self.remaining_seconds > 0:
+                    is_open_time = int(unit.get('open_time', 0) or 0) == 1
+                    self.open_time_active = is_open_time
+                    # Track open_time metrics if present
+                    if is_open_time:
+                        self.open_time_elapsed = int(unit.get('open_time_elapsed', 0) or 0)
+                        self.open_time_amount = float(unit.get('open_time_amount', 0) or 0)
+                    # Unlock if remaining_seconds > 0 OR if open_time mode is active
+                    if self.remaining_seconds > 0 or is_open_time:
                         self.admin_unlocked = False
                         self.reset_expired_state()
                     self.root.after(0, self.update_display)
@@ -1389,7 +1418,14 @@ class TimerOverlay:
                 unit = data.get('unit', {})
                 if int(unit.get('id', 0)) == self.unit_id:
                     self.remaining_seconds = int(unit.get('remaining_seconds', 0) or 0)
-                    if self.remaining_seconds > 0:
+                    # Track open_time status if present
+                    is_open_time = int(unit.get('open_time', 0) or 0) == 1
+                    self.open_time_active = is_open_time
+                    if is_open_time:
+                        self.open_time_elapsed = int(unit.get('open_time_elapsed', 0) or 0)
+                        self.open_time_amount = float(unit.get('open_time_amount', 0) or 0)
+                    # Unlock if remaining_seconds > 0 OR if open_time mode is active
+                    if self.remaining_seconds > 0 or is_open_time:
                         self.admin_unlocked = False
                         self.reset_expired_state()
                     self.root.after(0, self.update_display)

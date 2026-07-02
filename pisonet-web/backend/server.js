@@ -636,6 +636,7 @@ async function startServer() {
           type: 'UNIT_UPDATE',
           unit: {
             id: unit.id,
+            remaining_seconds: 0,
             open_time: 1,
             open_time_elapsed: elapsed,
             open_time_amount: amount,

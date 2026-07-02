@@ -564,6 +564,7 @@ router.post('/:id/open-time', requireAdminAuth, (req, res) => {
                 type: 'UNIT_UPDATE',
                 unit: {
                   id: parseInt(unitId, 10),
+                  remaining_seconds: 0,
                   open_time: 1,
                   open_time_start: now,
                   open_time_paused: 0,
@@ -596,6 +597,7 @@ router.post('/:id/open-time', requireAdminAuth, (req, res) => {
             type: 'UNIT_UPDATE',
             unit: {
               id: parseInt(unitId),
+              remaining_seconds: 0,
               open_time: 1,
               open_time_start: now,
               open_time_paused: 0,
