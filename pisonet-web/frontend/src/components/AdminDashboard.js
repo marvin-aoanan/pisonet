@@ -774,6 +774,41 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
             inputProps={{ min: '1', step: '1' }}
             placeholder="Enter number of minutes"
           />
+          <Box sx={{ mt: 2, mb: 2 }}>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+              Quick Select:
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button 
+                size="small" 
+                variant={timeDialogAmount === '15' ? 'contained' : 'outlined'}
+                onClick={() => setTimeDialogAmount('15')}
+              >
+                15m
+              </Button>
+              <Button 
+                size="small" 
+                variant={timeDialogAmount === '30' ? 'contained' : 'outlined'}
+                onClick={() => setTimeDialogAmount('30')}
+              >
+                30m
+              </Button>
+              <Button 
+                size="small" 
+                variant={timeDialogAmount === '60' ? 'contained' : 'outlined'}
+                onClick={() => setTimeDialogAmount('60')}
+              >
+                1hr
+              </Button>
+              <Button 
+                size="small" 
+                variant={timeDialogAmount === '120' ? 'contained' : 'outlined'}
+                onClick={() => setTimeDialogAmount('120')}
+              >
+                2hr
+              </Button>
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeTimeDialog} color="inherit">
