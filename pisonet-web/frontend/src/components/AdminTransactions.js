@@ -10,6 +10,7 @@ function AdminTransactions({ adminPassword }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pesoToSeconds, setPesoToSeconds] = useState(60);
+  const [flatRateSettings, setFlatRateSettings] = useState({});
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -31,15 +32,17 @@ function AdminTransactions({ adminPassword }) {
       if (!adminPassword) return;
 
       try {
-        const response = await axios.get(`${API_URL}/settings/peso_to_seconds`, {
+        const response = await axios.get(`${API_URL}/settings`, {
           headers: { 'x-admin-password': adminPassword }
         });
-        const nextValue = Number(response?.data?.value);
+        const settings = response?.data || {};
+        setFlatRateSettings(settings);
+        const nextValue = Number(settings.peso_to_seconds);
         if (!Number.isNaN(nextValue) && nextValue > 0) {
           setPesoToSeconds(nextValue);
         }
       } catch (err) {
-        console.error('Error fetching peso_to_seconds setting:', err);
+        console.error('Error fetching pricing settings:', err);
       }
     };
 
@@ -86,11 +89,30 @@ function AdminTransactions({ adminPassword }) {
       return amount;
     }
 
-    if (!pesoToSeconds || pesoToSeconds <= 0) {
-      return 0;
+    const tier1Minutes = Math.max(1, Number(flatRateSettings.flat_rate_tier1_minutes || 15));
+    const tier1Price = Math.max(0, Number(flatRateSettings.flat_rate_tier1_price || 5));
+    const tier2Minutes = Math.max(tier1Minutes + 1, Number(flatRateSettings.flat_rate_tier2_minutes || 30));
+    const tier2Price = Math.max(0, Number(flatRateSettings.flat_rate_tier2_price || 10));
+    const tier3Minutes = Math.max(tier2Minutes + 1, Number(flatRateSettings.flat_rate_tier3_minutes || 60));
+    const tier3Price = Math.max(0, Number(flatRateSettings.flat_rate_tier3_price || 15));
+
+    const sign = amount < 0 ? -1 : 1;
+    const absMinutes = Math.ceil(Math.max(0, Math.abs(amount)));
+    if (absMinutes <= 0) return 0;
+
+    let pricedAmount = tier1Price;
+    if (absMinutes <= tier1Minutes) {
+      pricedAmount = tier1Price;
+    } else if (absMinutes <= tier2Minutes) {
+      pricedAmount = tier2Price;
+    } else if (absMinutes <= tier3Minutes) {
+      pricedAmount = tier3Price;
+    } else {
+      const overflowBlocks = Math.ceil((absMinutes - tier3Minutes) / tier1Minutes);
+      pricedAmount = tier3Price + (overflowBlocks * tier1Price);
     }
 
-    return (amount * 60) / pesoToSeconds;
+    return sign * pricedAmount;
   };
 
   const columns = [

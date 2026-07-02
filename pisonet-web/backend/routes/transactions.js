@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('../pricing');
 
 function getElectricityUsageHours(row, pesoToSeconds) {
   const amount = Number(row?.amount || 0);
@@ -18,16 +19,15 @@ function getElectricityUsageHours(row, pesoToSeconds) {
   return (amount * pesoToSeconds) / 3600;
 }
 
-function getNormalizedRevenueAmount(row, pesoToSeconds) {
+function getNormalizedRevenueAmount(row, flatRateSettings) {
   const amount = Number(row?.amount || 0);
   const type = row?.transaction_type;
 
   if (type === 'admin_add' || type === 'admin_deduct') {
-    if (!Number.isFinite(pesoToSeconds) || pesoToSeconds <= 0) {
-      return 0;
-    }
-
-    return (amount * 60) / pesoToSeconds;
+    const sign = amount < 0 ? -1 : 1;
+    const minutes = Math.abs(amount);
+    const converted = calculateFlatRateAmountFromMinutes(minutes, flatRateSettings, { minimumCharge: false });
+    return sign * converted;
   }
 
   return amount;
@@ -46,22 +46,29 @@ function getElectricityMetrics(row, pesoToSeconds, wattage, ratePerKwh) {
 }
 
 function loadElectricitySettings(callback) {
-  db.all(
-    `SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate')`,
-    [],
-    (settingsErr, settingRows) => {
-      if (settingsErr) {
-        return callback(settingsErr);
-      }
-
-      const settings = Object.fromEntries((settingRows || []).map((row) => [row.key, row.value]));
-      return callback(null, {
-        pesoToSeconds: Number(settings.peso_to_seconds || 60),
-        wattage: Number(settings.estimated_pc_wattage || 200),
-        ratePerKwh: Number(settings.estimated_kwh_rate || 12),
-      });
+  loadFlatRateSettings(db, (flatRateErr, flatRateSettings) => {
+    if (flatRateErr) {
+      return callback(flatRateErr);
     }
-  );
+
+    db.all(
+      `SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate')`,
+      [],
+      (settingsErr, settingRows) => {
+        if (settingsErr) {
+          return callback(settingsErr);
+        }
+
+        const settings = Object.fromEntries((settingRows || []).map((row) => [row.key, row.value]));
+        return callback(null, {
+          pesoToSeconds: Number(settings.peso_to_seconds || 60),
+          wattage: Number(settings.estimated_pc_wattage || 200),
+          ratePerKwh: Number(settings.estimated_kwh_rate || 12),
+          flatRateSettings,
+        });
+      }
+    );
+  });
 }
 
 // GET all transactions with pagination
@@ -91,21 +98,28 @@ router.get('/', (req, res) => {
 
 // GET total revenue
 router.get('/revenue/total', (req, res) => {
-  db.get(
-    'SELECT COALESCE(SUM(amount), 0) as total_revenue FROM transactions',
-    [],
-    (err, row) => {
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    db.all('SELECT amount, transaction_type FROM transactions', [], (err, rows) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      res.json({ total_revenue: parseFloat(row.total_revenue) });
-    }
-  );
+
+      const totalRevenue = (rows || []).reduce((sum, row) => {
+        return sum + getNormalizedRevenueAmount(row, flatRateSettings);
+      }, 0);
+
+      res.json({ total_revenue: Number(totalRevenue.toFixed(4)) });
+    });
+  });
 });
 
 // GET revenue by unit
 router.get('/revenue/by-unit', (req, res) => {
-  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+  loadElectricitySettings((settingsErr, { pesoToSeconds, flatRateSettings } = {}) => {
     if (settingsErr) {
       return res.status(500).json({ error: settingsErr.message });
     }
@@ -138,7 +152,7 @@ router.get('/revenue/by-unit', (req, res) => {
         };
 
         if (row.transaction_id) {
-          existing.revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
+          existing.revenue += getNormalizedRevenueAmount(row, flatRateSettings);
           existing.usage_hours += getElectricityUsageHours(row, pesoToSeconds);
           existing.transaction_count += 1;
         }
@@ -163,7 +177,7 @@ router.get('/revenue/by-unit', (req, res) => {
 router.get('/revenue/daily', (req, res) => {
   const days = parseInt(req.query.days) || 30;
 
-  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+  loadElectricitySettings((settingsErr, { pesoToSeconds, flatRateSettings } = {}) => {
     if (settingsErr) {
       return res.status(500).json({ error: settingsErr.message });
     }
@@ -192,7 +206,7 @@ router.get('/revenue/daily', (req, res) => {
           transaction_count: 0,
         };
 
-        existing.daily_revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
+        existing.daily_revenue += getNormalizedRevenueAmount(row, flatRateSettings);
         existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
         existing.transaction_count += 1;
         dailyMap.set(row.date, existing);
@@ -215,7 +229,7 @@ router.get('/revenue/daily', (req, res) => {
 router.get('/revenue/daily-by-unit', (req, res) => {
   const days = parseInt(req.query.days, 10) || 30;
 
-  loadElectricitySettings((settingsErr, { pesoToSeconds } = {}) => {
+  loadElectricitySettings((settingsErr, { pesoToSeconds, flatRateSettings } = {}) => {
     if (settingsErr) {
       return res.status(500).json({ error: settingsErr.message });
     }
@@ -270,7 +284,7 @@ router.get('/revenue/daily-by-unit', (req, res) => {
                 transaction_count: 0,
               };
 
-              existing.daily_revenue += getNormalizedRevenueAmount(row, pesoToSeconds);
+              existing.daily_revenue += getNormalizedRevenueAmount(row, flatRateSettings);
               existing.daily_hours += getElectricityUsageHours(row, pesoToSeconds);
               existing.transaction_count += 1;
 
@@ -325,20 +339,42 @@ router.get('/revenue/daily-by-unit', (req, res) => {
 
 // GET hourly revenue
 router.get('/revenue/hourly', (req, res) => {
-  db.all(`
-    SELECT 
-      strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
-      COALESCE(SUM(amount), 0) as hourly_revenue,
-      COUNT(*) as transaction_count
-    FROM transactions
-    WHERE timestamp >= datetime('now', '-24 hours')
-    GROUP BY strftime('%Y-%m-%d %H:00:00', timestamp)
-    ORDER BY hour DESC
-  `, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
     }
-    res.json(rows);
+
+    db.all(`
+      SELECT 
+        strftime('%Y-%m-%d %H:00:00', timestamp) as hour,
+        amount,
+        transaction_type
+      FROM transactions
+      WHERE timestamp >= datetime('now', '-24 hours')
+      ORDER BY hour DESC
+    `, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const hourlyMap = new Map();
+      (rows || []).forEach((row) => {
+        const key = row.hour;
+        const current = hourlyMap.get(key) || { hour: key, hourly_revenue: 0, transaction_count: 0 };
+        current.hourly_revenue += getNormalizedRevenueAmount(row, flatRateSettings);
+        current.transaction_count += 1;
+        hourlyMap.set(key, current);
+      });
+
+      const result = Array.from(hourlyMap.values())
+        .map((row) => ({
+          ...row,
+          hourly_revenue: Number(row.hourly_revenue.toFixed(4)),
+        }))
+        .sort((a, b) => b.hour.localeCompare(a.hour));
+
+      res.json(result);
+    });
   });
 });
 
@@ -455,18 +491,37 @@ router.get('/electricity/by-unit', (req, res) => {
 
 // GET transactions by type
 router.get('/report/by-type', (req, res) => {
-  db.all(`
-    SELECT 
-      transaction_type,
-      COUNT(*) as count,
-      COALESCE(SUM(amount), 0) as total_amount
-    FROM transactions
-    GROUP BY transaction_type
-  `, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
     }
-    res.json(rows);
+
+    db.all(`
+      SELECT 
+        transaction_type,
+        amount
+      FROM transactions
+    `, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const byType = new Map();
+      (rows || []).forEach((row) => {
+        const txType = row.transaction_type || 'unknown';
+        const current = byType.get(txType) || { transaction_type: txType, count: 0, total_amount: 0 };
+        current.count += 1;
+        current.total_amount += getNormalizedRevenueAmount(row, flatRateSettings);
+        byType.set(txType, current);
+      });
+
+      const result = Array.from(byType.values()).map((row) => ({
+        ...row,
+        total_amount: Number(row.total_amount.toFixed(4)),
+      }));
+
+      res.json(result);
+    });
   });
 });
 
@@ -475,23 +530,39 @@ router.get('/report/comprehensive', (req, res) => {
   const startDate = req.query.start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const endDate = req.query.end_date || new Date().toISOString();
 
-  db.get(`
-    SELECT 
-      (SELECT COUNT(*) FROM transactions WHERE timestamp BETWEEN ? AND ?) as total_transactions,
-      (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE timestamp BETWEEN ? AND ?) as total_revenue,
-      (SELECT COUNT(DISTINCT unit_id) FROM transactions WHERE timestamp BETWEEN ? AND ?) as active_units,
-      (SELECT COALESCE(AVG(amount), 0) FROM transactions WHERE timestamp BETWEEN ? AND ?) as average_transaction
-  `, [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate],
-    (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json({
-        period: { start: startDate, end: endDate },
-        ...row
-      });
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
     }
-  );
+
+    db.all(
+      `
+        SELECT unit_id, amount, transaction_type
+        FROM transactions
+        WHERE timestamp BETWEEN ? AND ?
+      `,
+      [startDate, endDate],
+      (err, rows) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        const txRows = rows || [];
+        const totalTransactions = txRows.length;
+        const totalRevenue = txRows.reduce((sum, row) => sum + getNormalizedRevenueAmount(row, flatRateSettings), 0);
+        const unitSet = new Set(txRows.map((row) => row.unit_id).filter((id) => id != null));
+        const averageTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+
+        res.json({
+          period: { start: startDate, end: endDate },
+          total_transactions: totalTransactions,
+          total_revenue: Number(totalRevenue.toFixed(4)),
+          active_units: unitSet.size,
+          average_transaction: Number(averageTransaction.toFixed(4)),
+        });
+      }
+    );
+  });
 });
 
 // POST create transaction (for advanced recording)

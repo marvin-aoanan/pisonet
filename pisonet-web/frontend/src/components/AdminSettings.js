@@ -218,6 +218,63 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                 Pricing & Time
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Flat-rate pricing (applies to both Open Time and Pre-defined Add/Deduct Time):
+                </Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 2 }}>
+                  <TextField
+                    fullWidth
+                    label="Tier 1 Minutes"
+                    type="number"
+                    value={settings.flat_rate_tier1_minutes || '15'}
+                    onChange={(e) => handleChange('flat_rate_tier1_minutes', e.target.value)}
+                    inputProps={{ min: 1 }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 1 Price (₱)"
+                    type="number"
+                    value={settings.flat_rate_tier1_price || '5'}
+                    onChange={(e) => handleChange('flat_rate_tier1_price', e.target.value)}
+                    inputProps={{ min: 1, step: '0.01' }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 2 Minutes"
+                    type="number"
+                    value={settings.flat_rate_tier2_minutes || '30'}
+                    onChange={(e) => handleChange('flat_rate_tier2_minutes', e.target.value)}
+                    inputProps={{ min: 1 }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 2 Price (₱)"
+                    type="number"
+                    value={settings.flat_rate_tier2_price || '10'}
+                    onChange={(e) => handleChange('flat_rate_tier2_price', e.target.value)}
+                    inputProps={{ min: 1, step: '0.01' }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 3 Minutes"
+                    type="number"
+                    value={settings.flat_rate_tier3_minutes || '60'}
+                    onChange={(e) => handleChange('flat_rate_tier3_minutes', e.target.value)}
+                    inputProps={{ min: 1 }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 3 Price (₱)"
+                    type="number"
+                    value={settings.flat_rate_tier3_price || '15'}
+                    onChange={(e) => handleChange('flat_rate_tier3_price', e.target.value)}
+                    inputProps={{ min: 1, step: '0.01' }}
+                  />
+                </Box>
+                <Alert severity="info">
+                  Current target: 15 mins = ₱5, 30 mins = ₱10, 60 mins = ₱15.
+                </Alert>
+                <Divider />
                 <TextField
                   fullWidth
                   label="Minutes per Peso"

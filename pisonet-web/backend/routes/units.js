@@ -2,16 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { requireAdminAuth } = require('../admin-auth');
+const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('../pricing');
 
-const OPEN_TIME_BLOCK_SECONDS = 20 * 60;
-const OPEN_TIME_BLOCK_PRICE = 5;
-
-function calculateOpenTimeAmount(elapsedSeconds) {
-  const billedBlocks = Math.max(1, Math.ceil(Math.max(0, elapsedSeconds) / OPEN_TIME_BLOCK_SECONDS));
-  return billedBlocks * OPEN_TIME_BLOCK_PRICE;
+function calculateOpenTimeAmount(elapsedSeconds, pricingSettings) {
+  const elapsedMinutes = Math.max(0, Number(elapsedSeconds || 0) / 60);
+  return calculateFlatRateAmountFromMinutes(elapsedMinutes, pricingSettings, { minimumCharge: true });
 }
 
-function getOpenTimeMetrics(unit, nowMs = Date.now()) {
+function getOpenTimeMetrics(unit, pricingSettings, nowMs = Date.now()) {
   const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
   const isPaused = Number(unit.open_time_paused || 0) === 1;
 
@@ -27,41 +25,47 @@ function getOpenTimeMetrics(unit, nowMs = Date.now()) {
   const elapsedSeconds = baseElapsed + runningElapsed;
   return {
     elapsedSeconds,
-    amountOwed: calculateOpenTimeAmount(elapsedSeconds),
+    amountOwed: calculateOpenTimeAmount(elapsedSeconds, pricingSettings),
     isPaused,
   };
 }
 
 // GET all units with session info
 router.get('/', (req, res) => {
-  db.all(`
-    SELECT u.*, 
-           (SELECT COUNT(*) FROM sessions WHERE unit_id = u.id AND status = 'active') as active_sessions
-    FROM units u 
-    ORDER BY u.id
-  `, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) {
+      return res.status(500).json({ error: pricingErr.message });
     }
-    const now = Date.now();
-    const enriched = rows.map((row) => {
-      if (row.open_time) {
-        const metrics = getOpenTimeMetrics(row, now);
+
+    db.all(`
+      SELECT u.*, 
+             (SELECT COUNT(*) FROM sessions WHERE unit_id = u.id AND status = 'active') as active_sessions
+      FROM units u 
+      ORDER BY u.id
+    `, [], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      const now = Date.now();
+      const enriched = rows.map((row) => {
+        if (row.open_time) {
+          const metrics = getOpenTimeMetrics(row, pricingSettings, now);
+          return {
+            ...row,
+            open_time_paused: metrics.isPaused ? 1 : 0,
+            open_time_elapsed: metrics.elapsedSeconds,
+            open_time_amount: metrics.amountOwed,
+          };
+        }
         return {
           ...row,
-          open_time_paused: metrics.isPaused ? 1 : 0,
-          open_time_elapsed: metrics.elapsedSeconds,
-          open_time_amount: metrics.amountOwed,
+          open_time_paused: 0,
+          open_time_elapsed: 0,
+          open_time_amount: 0,
         };
-      }
-      return {
-        ...row,
-        open_time_paused: 0,
-        open_time_elapsed: 0,
-        open_time_amount: 0,
-      };
+      });
+      res.json(enriched);
     });
-    res.json(enriched);
   });
 });
 
@@ -546,74 +550,78 @@ router.post('/:id/open-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const now = new Date().toISOString();
 
-  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!unit) return res.status(404).json({ error: 'Unit not found' });
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) return res.status(500).json({ error: pricingErr.message });
 
-    if (unit.open_time) {
-      if (Number(unit.open_time_paused || 0) === 1) {
-        db.run(
-          'UPDATE units SET open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, status = ?, last_status_update = ? WHERE id = ?',
-          [now, 'Active', now, unitId],
-          (resumeErr) => {
-            if (resumeErr) return res.status(500).json({ error: resumeErr.message });
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
-            const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
-            if (global.broadcast) {
-              global.broadcast({
-                type: 'UNIT_UPDATE',
-                unit: {
-                  id: parseInt(unitId, 10),
-                  remaining_seconds: 0,
-                  open_time: 1,
-                  open_time_start: now,
-                  open_time_paused: 0,
-                  open_time_paused_at: null,
-                  open_time_elapsed_base_seconds: baseElapsed,
-                  open_time_elapsed: baseElapsed,
-                  open_time_amount: calculateOpenTimeAmount(baseElapsed),
-                  status: 'Active'
-                }
-              });
+      if (unit.open_time) {
+        if (Number(unit.open_time_paused || 0) === 1) {
+          db.run(
+            'UPDATE units SET open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, status = ?, last_status_update = ? WHERE id = ?',
+            [now, 'Active', now, unitId],
+            (resumeErr) => {
+              if (resumeErr) return res.status(500).json({ error: resumeErr.message });
+
+              const baseElapsed = Math.max(0, Number(unit.open_time_elapsed_base_seconds || 0));
+              if (global.broadcast) {
+                global.broadcast({
+                  type: 'UNIT_UPDATE',
+                  unit: {
+                    id: parseInt(unitId, 10),
+                    remaining_seconds: 0,
+                    open_time: 1,
+                    open_time_start: now,
+                    open_time_paused: 0,
+                    open_time_paused_at: null,
+                    open_time_elapsed_base_seconds: baseElapsed,
+                    open_time_elapsed: baseElapsed,
+                    open_time_amount: calculateOpenTimeAmount(baseElapsed, pricingSettings),
+                    status: 'Active'
+                  }
+                });
+              }
+
+              return res.json({ message: 'Open time resumed', unit_id: parseInt(unitId, 10), start_time: now });
             }
-
-            return res.json({ message: 'Open time resumed', unit_id: parseInt(unitId, 10), start_time: now });
-          }
-        );
-        return;
-      }
-
-      return res.status(400).json({ error: 'Unit is already in open-time mode' });
-    }
-
-    db.run(
-      'UPDATE units SET open_time = 1, open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
-      [now, 0, 'Active', now, unitId],
-      (updateErr) => {
-        if (updateErr) return res.status(500).json({ error: updateErr.message });
-
-        if (global.broadcast) {
-          global.broadcast({
-            type: 'UNIT_UPDATE',
-            unit: {
-              id: parseInt(unitId),
-              remaining_seconds: 0,
-              open_time: 1,
-              open_time_start: now,
-              open_time_paused: 0,
-              open_time_paused_at: null,
-              open_time_elapsed_base_seconds: 0,
-              open_time_elapsed: 0,
-              open_time_amount: calculateOpenTimeAmount(0),
-              total_revenue: 0,
-              status: 'Active'
-            }
-          });
+          );
+          return;
         }
 
-        res.json({ message: 'Open time started', unit_id: parseInt(unitId), start_time: now });
+        return res.status(400).json({ error: 'Unit is already in open-time mode' });
       }
-    );
+
+      db.run(
+        'UPDATE units SET open_time = 1, open_time_start = ?, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, total_revenue = ?, status = ?, last_status_update = ? WHERE id = ?',
+        [now, 0, 'Active', now, unitId],
+        (updateErr) => {
+          if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+          if (global.broadcast) {
+            global.broadcast({
+              type: 'UNIT_UPDATE',
+              unit: {
+                id: parseInt(unitId),
+                remaining_seconds: 0,
+                open_time: 1,
+                open_time_start: now,
+                open_time_paused: 0,
+                open_time_paused_at: null,
+                open_time_elapsed_base_seconds: 0,
+                open_time_elapsed: 0,
+                open_time_amount: calculateOpenTimeAmount(0, pricingSettings),
+                total_revenue: 0,
+                status: 'Active'
+              }
+            });
+          }
+
+          res.json({ message: 'Open time started', unit_id: parseInt(unitId), start_time: now });
+        }
+      );
+    });
   });
 });
 
@@ -622,7 +630,10 @@ router.post('/:id/open-time/pause', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const now = new Date().toISOString();
 
-  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) return res.status(500).json({ error: pricingErr.message });
+
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
@@ -634,7 +645,7 @@ router.post('/:id/open-time/pause', requireAdminAuth, (req, res) => {
       return res.status(400).json({ error: 'Open time is already paused' });
     }
 
-    const metrics = getOpenTimeMetrics(unit, new Date(now).getTime());
+      const metrics = getOpenTimeMetrics(unit, pricingSettings, new Date(now).getTime());
     db.run(
       'UPDATE units SET open_time_start = NULL, open_time_paused = 1, open_time_paused_at = ?, open_time_elapsed_base_seconds = ?, last_status_update = ? WHERE id = ?',
       [now, metrics.elapsedSeconds, now, unitId],
@@ -652,7 +663,7 @@ router.post('/:id/open-time/pause', requireAdminAuth, (req, res) => {
               open_time_paused_at: now,
               open_time_elapsed_base_seconds: metrics.elapsedSeconds,
               open_time_elapsed: metrics.elapsedSeconds,
-              open_time_amount: calculateOpenTimeAmount(metrics.elapsedSeconds),
+              open_time_amount: calculateOpenTimeAmount(metrics.elapsedSeconds, pricingSettings),
               status: unit.status || 'Active'
             }
           });
@@ -666,6 +677,7 @@ router.post('/:id/open-time/pause', requireAdminAuth, (req, res) => {
         });
       }
     );
+    });
   });
 });
 
@@ -674,7 +686,10 @@ router.post('/:id/open-time/resume', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const now = new Date().toISOString();
 
-  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) return res.status(500).json({ error: pricingErr.message });
+
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
@@ -704,7 +719,7 @@ router.post('/:id/open-time/resume', requireAdminAuth, (req, res) => {
               open_time_paused_at: null,
               open_time_elapsed_base_seconds: baseElapsed,
               open_time_elapsed: baseElapsed,
-              open_time_amount: calculateOpenTimeAmount(baseElapsed),
+              open_time_amount: calculateOpenTimeAmount(baseElapsed, pricingSettings),
               status: unit.status || 'Active'
             }
           });
@@ -717,6 +732,7 @@ router.post('/:id/open-time/resume', requireAdminAuth, (req, res) => {
         });
       }
     );
+    });
   });
 });
 
@@ -726,7 +742,10 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const stopTime = new Date().toISOString();
 
-  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) return res.status(500).json({ error: pricingErr.message });
+
+    db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
@@ -734,9 +753,9 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
       return res.status(400).json({ error: 'Unit is not in open-time mode' });
     }
 
-    const metrics = getOpenTimeMetrics(unit, new Date(stopTime).getTime());
+      const metrics = getOpenTimeMetrics(unit, pricingSettings, new Date(stopTime).getTime());
     const elapsedSeconds = metrics.elapsedSeconds;
-    const amountOwed = calculateOpenTimeAmount(elapsedSeconds);
+      const amountOwed = calculateOpenTimeAmount(elapsedSeconds, pricingSettings);
     const elapsedMinutes = parseFloat((elapsedSeconds / 60).toFixed(4));
     const newRevenue = Number(unit.total_revenue || 0) + Number(amountOwed || 0);
 
@@ -783,6 +802,7 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
         });
       }
     );
+    });
   });
 });
 

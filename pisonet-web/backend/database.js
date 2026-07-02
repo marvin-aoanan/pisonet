@@ -281,7 +281,13 @@ function initializeDatabase() {
     `);
 
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('peso_to_seconds', '60')`);
-  db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier1_minutes', '15')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier1_price', '5')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier2_minutes', '30')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier2_price', '10')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_minutes', '60')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_price', '15')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);
 

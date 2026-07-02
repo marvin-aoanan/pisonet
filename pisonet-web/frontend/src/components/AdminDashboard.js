@@ -41,15 +41,49 @@ import { areaElementClasses, lineElementClasses, chartsAxisHighlightClasses } fr
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
-function normalizeTransactionRevenue(tx, pesoToSeconds) {
+function getFlatRateSettings(settings = {}) {
+  const asPositive = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  };
+
+  const tier1Minutes = asPositive(settings.flat_rate_tier1_minutes, 15);
+  const tier1Price = asPositive(settings.flat_rate_tier1_price, 5);
+  const tier2Minutes = Math.max(tier1Minutes + 1, asPositive(settings.flat_rate_tier2_minutes, 30));
+  const tier2Price = asPositive(settings.flat_rate_tier2_price, 10);
+  const tier3Minutes = Math.max(tier2Minutes + 1, asPositive(settings.flat_rate_tier3_minutes, 60));
+  const tier3Price = asPositive(settings.flat_rate_tier3_price, 15);
+
+  return {
+    tier1Minutes,
+    tier1Price,
+    tier2Minutes,
+    tier2Price,
+    tier3Minutes,
+    tier3Price,
+  };
+}
+
+function calculateFlatRateAmountFromMinutes(minutes, settings = {}) {
+  const pricing = getFlatRateSettings(settings);
+  const absMinutes = Math.ceil(Math.max(0, Number(minutes) || 0));
+
+  if (absMinutes <= 0) return 0;
+  if (absMinutes <= pricing.tier1Minutes) return pricing.tier1Price;
+  if (absMinutes <= pricing.tier2Minutes) return pricing.tier2Price;
+  if (absMinutes <= pricing.tier3Minutes) return pricing.tier3Price;
+
+  const extensionBlocks = Math.ceil((absMinutes - pricing.tier3Minutes) / Math.max(1, pricing.tier1Minutes));
+  return pricing.tier3Price + (extensionBlocks * pricing.tier1Price);
+}
+
+function normalizeTransactionRevenue(tx, pricingSettings) {
   const amount = Number(tx?.amount || 0);
   const type = tx?.transaction_type;
 
   if (type === 'admin_add' || type === 'admin_deduct') {
-    if (!pesoToSeconds || pesoToSeconds <= 0) {
-      return 0;
-    }
-    return (amount * 60) / pesoToSeconds;
+    const sign = amount < 0 ? -1 : 1;
+    return sign * calculateFlatRateAmountFromMinutes(Math.abs(amount), pricingSettings);
   }
 
   return amount;
@@ -147,18 +181,15 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
           return;
         }
 
-        let currentPesoToSeconds = 60;
+        let currentPricingSettings = {};
         if (adminPassword) {
           try {
-            const settingsResponse = await axios.get(`${API_URL}/settings/peso_to_seconds`, {
+            const settingsResponse = await axios.get(`${API_URL}/settings`, {
               headers: { 'x-admin-password': adminPassword }
             });
-            const nextValue = Number(settingsResponse?.data?.value);
-            if (!Number.isNaN(nextValue) && nextValue > 0) {
-              currentPesoToSeconds = nextValue;
-            }
+            currentPricingSettings = settingsResponse?.data || {};
           } catch (settingsErr) {
-            console.error('Error fetching peso_to_seconds for session revenue:', settingsErr);
+            console.error('Error fetching flat-rate settings for session revenue:', settingsErr);
           }
         }
 
@@ -175,7 +206,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
             if (Number(tx?.unit_id) !== unitId) return sum;
             const txTime = new Date(tx?.timestamp || 0).getTime();
             if (hasValidStart && (!Number.isFinite(txTime) || txTime < startTime)) return sum;
-            return sum + normalizeTransactionRevenue(tx, currentPesoToSeconds);
+            return sum + normalizeTransactionRevenue(tx, currentPricingSettings);
           }, 0);
 
           nextMap[unitId] = revenue;

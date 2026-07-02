@@ -12,6 +12,7 @@ const db = require('./database');
 const unitsRouter = require('./routes/units');
 const transactionsRouter = require('./routes/transactions');
 const settingsRouter = require('./routes/settings');
+const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('./pricing');
 
 const app = express();
 const server = http.createServer(app);
@@ -544,12 +545,10 @@ global.broadcast = (data) => {
 // Timer countdown - runs every second (debounced updates)
 let lastUpdateTime = {};
 let countdownTimer = null;
-const OPEN_TIME_BLOCK_SECONDS = 20 * 60;
-const OPEN_TIME_BLOCK_PRICE = 5;
 
-function calculateOpenTimeAmount(elapsedSeconds) {
-  const billedBlocks = Math.max(1, Math.ceil(Math.max(0, elapsedSeconds) / OPEN_TIME_BLOCK_SECONDS));
-  return billedBlocks * OPEN_TIME_BLOCK_PRICE;
+function calculateOpenTimeAmount(elapsedSeconds, pricingSettings) {
+  const elapsedMinutes = Math.max(0, Number(elapsedSeconds || 0) / 60);
+  return calculateFlatRateAmountFromMinutes(elapsedMinutes, pricingSettings, { minimumCharge: true });
 }
 
 // Error handling middleware
@@ -622,26 +621,33 @@ async function startServer() {
     });
 
     // Broadcast elapsed time for open-time units every second
-    db.all('SELECT id, open_time_start FROM units WHERE open_time = 1', [], (openErr, openUnits) => {
-      if (openErr) {
-        console.error('Error fetching open-time units:', openErr);
+    loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+      if (pricingErr) {
+        console.error('Error loading flat-rate settings:', pricingErr);
         return;
       }
-      const now = Date.now();
-      openUnits.forEach((unit) => {
-        if (!unit.open_time_start) return;
-        const elapsed = Math.max(0, Math.floor((now - new Date(unit.open_time_start).getTime()) / 1000));
-        const amount = calculateOpenTimeAmount(elapsed);
-        global.broadcast({
-          type: 'UNIT_UPDATE',
-          unit: {
-            id: unit.id,
-            remaining_seconds: 0,
-            open_time: 1,
-            open_time_elapsed: elapsed,
-            open_time_amount: amount,
-            status: 'Active'
-          }
+
+      db.all('SELECT id, open_time_start FROM units WHERE open_time = 1', [], (openErr, openUnits) => {
+        if (openErr) {
+          console.error('Error fetching open-time units:', openErr);
+          return;
+        }
+        const now = Date.now();
+        openUnits.forEach((unit) => {
+          if (!unit.open_time_start) return;
+          const elapsed = Math.max(0, Math.floor((now - new Date(unit.open_time_start).getTime()) / 1000));
+          const amount = calculateOpenTimeAmount(elapsed, pricingSettings);
+          global.broadcast({
+            type: 'UNIT_UPDATE',
+            unit: {
+              id: unit.id,
+              remaining_seconds: 0,
+              open_time: 1,
+              open_time_elapsed: elapsed,
+              open_time_amount: amount,
+              status: 'Active'
+            }
+          });
         });
       });
     });

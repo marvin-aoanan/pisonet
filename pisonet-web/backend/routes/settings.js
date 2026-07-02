@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database');
 const { hashPassword, validateAdminPassword, requireAdminAuth } = require('../admin-auth');
+const { calculateFlatRateAmountFromMinutes, normalizeFlatRateSettings } = require('../pricing');
 
 const dbFilePath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'pisonet.db');
 const coinsOutDir = path.join(__dirname, '..', 'backups', 'coins-out');
@@ -57,6 +58,20 @@ function computeUsageHours(transaction, pesoToSeconds) {
   }
 
   return (amount * pesoToSeconds) / 3600;
+}
+
+function normalizeRevenueAmount(transaction, flatRateSettings) {
+  const amount = Number(transaction?.amount || 0);
+  const type = transaction?.transaction_type;
+
+  if (type === 'admin_add' || type === 'admin_deduct') {
+    const sign = amount < 0 ? -1 : 1;
+    const minutes = Math.abs(amount);
+    const priced = calculateFlatRateAmountFromMinutes(minutes, flatRateSettings, { minimumCharge: false });
+    return sign * priced;
+  }
+
+  return amount;
 }
 
 function escapeHtml(value) {
@@ -522,15 +537,16 @@ router.post('/admin/coins-out', async (req, res) => {
 
     const [transactions, settingsRows] = await Promise.all([
       dbAllAsync('SELECT unit_id, amount, denomination, timestamp, transaction_type FROM transactions ORDER BY timestamp ASC'),
-      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate')")
+      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price')")
     ]);
 
     const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
     const pesoToSeconds = Number(settings.peso_to_seconds || 60);
     const wattage = Number(settings.estimated_pc_wattage || 200);
     const ratePerKwh = Number(settings.estimated_kwh_rate || 12);
+    const flatRateSettings = normalizeFlatRateSettings(settings);
 
-    const totalRevenue = transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+    const totalRevenue = transactions.reduce((sum, tx) => sum + normalizeRevenueAmount(tx, flatRateSettings), 0);
     const totalUsageHours = transactions.reduce((sum, tx) => sum + computeUsageHours(tx, pesoToSeconds), 0);
     const estimatedKwh = (totalUsageHours * wattage) / 1000;
     const estimatedCost = estimatedKwh * ratePerKwh;
@@ -540,7 +556,7 @@ router.post('/admin/coins-out', async (req, res) => {
       const type = tx.transaction_type || 'unknown';
       const entry = breakdownMap.get(type) || { transaction_type: type, count: 0, total_amount: 0 };
       entry.count += 1;
-      entry.total_amount += Number(tx.amount || 0);
+      entry.total_amount += normalizeRevenueAmount(tx, flatRateSettings);
       breakdownMap.set(type, entry);
     }
 
