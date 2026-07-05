@@ -57,6 +57,19 @@ cd c:\Users\bilyunir\pisonet\pisonet-web
 # Select option and script will install dependencies
 ```
 
+### Windows Auto-Start
+To launch PisoNet automatically when this Windows account logs in, run:
+```powershell
+.\install-startup.bat
+```
+
+That creates a shortcut in the user's Startup folder that runs [startup.ps1](startup.ps1) and starts both backend and frontend.
+
+If you want to start it immediately without waiting for the next logon, run:
+```powershell
+.\startup.ps1
+```
+
 ### Option 2: Manual
 
 **Backend dependencies:**

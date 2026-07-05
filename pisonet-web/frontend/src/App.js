@@ -168,9 +168,24 @@ function App() {
   useEffect(() => {
     let reconnectTimeout;
     let wsInstance;
+    let pingInterval;
+    let isUnmounted = false;
+    let intentionalClose = false;
+
+    const clearPingInterval = () => {
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+    };
 
     const connectWebSocket = () => {
+      if (isUnmounted) {
+        return;
+      }
+
       try {
+        intentionalClose = false;
         const websocket = new WebSocket(WS_URL);
 
         websocket.onopen = () => {
@@ -242,6 +257,12 @@ function App() {
 
         websocket.onclose = () => {
           console.log('🔴 WebSocket disconnected');
+          clearPingInterval();
+
+          if (isUnmounted || intentionalClose) {
+            return;
+          }
+
           setWsConnected(false);
           setStatusMessage('🔄 Reconnecting...');
           
@@ -257,24 +278,28 @@ function App() {
         wsInstance = websocket;
 
         // Keep-alive ping
-        const pingInterval = setInterval(() => {
+        clearPingInterval();
+        pingInterval = setInterval(() => {
           if (websocket.readyState === WebSocket.OPEN) {
             websocket.send(JSON.stringify({ type: 'PING' }));
           }
         }, 30000);
-
-        return () => clearInterval(pingInterval);
       } catch (err) {
         console.error('WebSocket error:', err);
-        reconnectTimeout = setTimeout(connectWebSocket, RECONNECT_INTERVAL);
+        if (!isUnmounted) {
+          reconnectTimeout = setTimeout(connectWebSocket, RECONNECT_INTERVAL);
+        }
       }
     };
 
     connectWebSocket();
 
     return () => {
+      isUnmounted = true;
       clearTimeout(reconnectTimeout);
+      clearPingInterval();
       if (wsInstance) {
+        intentionalClose = true;
         wsInstance.close();
       }
     };

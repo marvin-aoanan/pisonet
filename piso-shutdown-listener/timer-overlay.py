@@ -1457,8 +1457,8 @@ class TimerOverlay:
         self.root.mainloop()
 
 
-def detect_unit_from_ip(subnet_prefix='192.168.1.', ip_start=151, ip_end=160):
-    """Auto-detect unit ID from client IP in range 192.168.1.151-160."""
+def detect_unit_from_ip(subnet_prefix='192.168.254.', ip_start=151, ip_end=160):
+    """Auto-detect unit ID from client IP in range 192.168.254.151-160."""
     import socket
     ips = set()
     try:
@@ -1471,7 +1471,7 @@ def detect_unit_from_ip(subnet_prefix='192.168.1.', ip_start=151, ip_end=160):
     # Also detect the outgoing interface IP towards the LAN gateway.
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('192.168.1.200', 80))
+        s.connect(('192.168.254.200', 80))
         ips.add(s.getsockname()[0])
         s.close()
     except Exception:
@@ -1491,7 +1491,7 @@ def detect_unit_from_ip(subnet_prefix='192.168.1.', ip_start=151, ip_end=160):
 
 def main():
     parser = argparse.ArgumentParser(description='PisoNet Client Timer Overlay')
-    parser.add_argument('--unit', type=int, default=None, help='PC unit number (1-10); auto-detected from IP 192.168.1.151-160 if omitted')
+    parser.add_argument('--unit', type=int, default=None, help='PC unit number (1-10); auto-detected from IP 192.168.254.151-160 if omitted')
     parser.add_argument('--server', type=str, required=True, help='Management PC host or IP (no protocol)')
     parser.add_argument('--wsport', type=int, default=5001, help='WebSocket port (default: 5001)')
     parser.add_argument('--grace', type=int, default=60, help='Shutdown warning time in seconds after timer hits zero (default: 60)')
@@ -1506,7 +1506,7 @@ def main():
         args.unit = detect_unit_from_ip()
         if args.unit is None:
             print(
-                "Error: Could not auto-detect unit number from IP range 192.168.1.151-160.\n"
+                "Error: Could not auto-detect unit number from IP range 192.168.254.151-160.\n"
                 "Ensure this PC has an IP in that range, or pass --unit explicitly."
             )
             sys.exit(1)

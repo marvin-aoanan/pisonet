@@ -2,11 +2,12 @@
 # PisoNet Quick Start Script
 
 $scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
+$npmCmd = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
 
 # Check if Node.js is installed
 $nodeExists = $null -ne (Get-Command node -ErrorAction SilentlyContinue)
 
-if (-not $nodeExists) {
+if (-not $nodeExists -or -not $npmCmd) {
     Clear-Host
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Red
@@ -29,7 +30,7 @@ if (-not $nodeExists) {
 Write-Host ""
 Write-Host "Checking Node.js and npm..." -ForegroundColor Green
 Write-Host "  Node.js: $(node --version)" -ForegroundColor Cyan
-Write-Host "  npm: $(npm --version)" -ForegroundColor Cyan
+Write-Host "  npm: $(& $npmCmd --version)" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "Installing dependencies..." -ForegroundColor Green
@@ -38,7 +39,7 @@ Write-Host "Installing dependencies..." -ForegroundColor Green
 if (-not (Test-Path "$scriptPath\backend\node_modules")) {
     Write-Host "  Backend: installing..." -ForegroundColor Yellow
     Push-Location "$scriptPath\backend"
-    npm install --silent
+    & $npmCmd install --silent
     Pop-Location
     Write-Host "  Backend: ready" -ForegroundColor Green
 } else {
@@ -49,7 +50,7 @@ if (-not (Test-Path "$scriptPath\backend\node_modules")) {
 if (-not (Test-Path "$scriptPath\frontend\node_modules")) {
     Write-Host "  Frontend: installing..." -ForegroundColor Yellow
     Push-Location "$scriptPath\frontend"
-    npm install --silent
+    & $npmCmd install --silent
     Pop-Location
     Write-Host "  Frontend: ready" -ForegroundColor Green
 } else {
@@ -64,7 +65,7 @@ Write-Host ""
 Start-Process powershell -ArgumentList @(
     "-NoExit"
     "-Command"
-    "cd '$scriptPath\backend'; npm start"
+    "cd '$scriptPath\backend'; & '$npmCmd' start"
 ) -WindowStyle Normal
 
 Start-Sleep -Seconds 2
@@ -73,7 +74,7 @@ Start-Sleep -Seconds 2
 Start-Process powershell -ArgumentList @(
     "-NoExit"
     "-Command"
-    "cd '$scriptPath\frontend'; npm start"
+    "cd '$scriptPath\frontend'; & '$npmCmd' start"
 ) -WindowStyle Normal
 
 Write-Host "Servers started!" -ForegroundColor Green

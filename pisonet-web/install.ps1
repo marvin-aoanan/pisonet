@@ -8,8 +8,9 @@ Write-Host ""
 
 # Check if Node.js is installed
 try {
+    $npmCmd = (Get-Command npm.cmd -ErrorAction Stop).Source
     $nodeVersion = node --version
-    $npmVersion = npm --version
+    $npmVersion = & $npmCmd --version
     Write-Host "✓ Node.js: $nodeVersion" -ForegroundColor Green
     Write-Host "✓ npm: $npmVersion" -ForegroundColor Green
 } catch {
@@ -21,7 +22,7 @@ try {
 Write-Host ""
 Write-Host "Installing Backend Dependencies..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\backend"
-npm install
+& $npmCmd install
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✓ Backend dependencies installed" -ForegroundColor Green
 } else {
@@ -35,7 +36,7 @@ Pop-Location
 Write-Host ""
 Write-Host "Installing Frontend Dependencies..." -ForegroundColor Yellow
 Push-Location "$PSScriptRoot\frontend"
-npm install
+& $npmCmd install
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✓ Frontend dependencies installed" -ForegroundColor Green
 } else {
@@ -53,6 +54,9 @@ Write-Host ""
 Write-Host "To start the application, run:" -ForegroundColor White
 Write-Host "  .\start.ps1" -ForegroundColor Yellow
 Write-Host ""
+Write-Host "To enable automatic start at Windows logon, run:" -ForegroundColor White
+Write-Host "  .\install-startup.bat" -ForegroundColor Yellow
+Write-Host "" 
 Write-Host "Or manually:" -ForegroundColor White
 Write-Host "  cd backend; npm start" -ForegroundColor Gray
 Write-Host "  cd frontend; npm start" -ForegroundColor Gray
