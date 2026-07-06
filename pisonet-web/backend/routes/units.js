@@ -69,7 +69,7 @@ router.get('/', (req, res) => {
   });
 });
 
-// GET unit by client IP address (used by diskless clients in 192.168.1.151-160 range)
+// GET unit by client IP address (used by diskless clients in 192.168.254.151-160 range)
 router.get('/by-ip/:ip', (req, res) => {
   const ip = req.params.ip;
   db.get('SELECT * FROM units WHERE ip_address = ?', [ip], (err, row) => {

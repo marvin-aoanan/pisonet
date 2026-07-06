@@ -423,12 +423,12 @@ const clients = new Map();
 const unitClients = new Map(); // unitId (number) → Set<ws>
 
 /**
- * Map a client IP in the range 192.168.1.151-160 to a unit ID (1-10).
+ * Map a client IP in the range 192.168.254.151-160 to a unit ID (1-10).
  * Returns null if the IP is outside the expected diskless client range.
  */
 function getUnitIdFromClientIp(ip) {
   const cleanIp = String(ip || '').replace(/^::ffff:/, '');
-  const match = cleanIp.match(/^192\.168\.1\.(\d+)$/);
+  const match = cleanIp.match(/^192\.168\.254\.(\d+)$/);
   if (match) {
     const last = parseInt(match[1], 10);
     if (last >= 151 && last <= 160) return last - 150; // 151→1 … 160→10

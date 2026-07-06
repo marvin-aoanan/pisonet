@@ -441,7 +441,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                       <TableCell>
                         <TextField
                           fullWidth
-                          placeholder="e.g. 192.168.1.101"
+                          placeholder="e.g. 192.168.254.101"
                           value={unit.ip_address || ''}
                           onChange={(e) => handleUnitChange(unit.id, 'ip_address', e.target.value)}
                           size="small"

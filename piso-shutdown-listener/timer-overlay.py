@@ -1471,7 +1471,7 @@ def detect_unit_from_ip(subnet_prefix='192.168.254.', ip_start=151, ip_end=160):
     # Also detect the outgoing interface IP towards the LAN gateway.
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('192.168.254.200', 80))
+        s.connect(('192.168.254.201', 80))
         ips.add(s.getsockname()[0])
         s.close()
     except Exception:
