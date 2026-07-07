@@ -50,29 +50,41 @@ function calculateFlatRateAmountFromMinutes(minutes, pricingSettings, options = 
   const { minimumCharge = false } = options;
   const pricing = normalizeFlatRateSettings(pricingSettings);
   const absMinutes = Math.ceil(Math.max(0, Number(minutes) || 0));
+  const tiers = [
+    { minutes: pricing.flat_rate_tier1_minutes, price: pricing.flat_rate_tier1_price },
+    { minutes: pricing.flat_rate_tier2_minutes, price: pricing.flat_rate_tier2_price },
+    { minutes: pricing.flat_rate_tier3_minutes, price: pricing.flat_rate_tier3_price },
+  ];
 
   if (absMinutes === 0) {
     return minimumCharge ? pricing.flat_rate_tier1_price : 0;
   }
 
-  if (absMinutes <= pricing.flat_rate_tier1_minutes) {
-    return pricing.flat_rate_tier1_price;
+  const maxTierMinutes = tiers.reduce((maxMinutes, tier) => Math.max(maxMinutes, tier.minutes), 0);
+  const limit = absMinutes + maxTierMinutes;
+  const bestCostByMinute = Array(limit + 1).fill(Infinity);
+  bestCostByMinute[0] = 0;
+
+  for (let coveredMinutes = 0; coveredMinutes <= limit; coveredMinutes += 1) {
+    if (!Number.isFinite(bestCostByMinute[coveredMinutes])) {
+      continue;
+    }
+
+    tiers.forEach((tier) => {
+      const nextCoveredMinutes = Math.min(limit, coveredMinutes + tier.minutes);
+      const nextCost = bestCostByMinute[coveredMinutes] + tier.price;
+      if (nextCost < bestCostByMinute[nextCoveredMinutes]) {
+        bestCostByMinute[nextCoveredMinutes] = nextCost;
+      }
+    });
   }
 
-  if (absMinutes <= pricing.flat_rate_tier2_minutes) {
-    return pricing.flat_rate_tier2_price;
+  let bestCost = Infinity;
+  for (let coveredMinutes = absMinutes; coveredMinutes <= limit; coveredMinutes += 1) {
+    bestCost = Math.min(bestCost, bestCostByMinute[coveredMinutes]);
   }
 
-  if (absMinutes <= pricing.flat_rate_tier3_minutes) {
-    return pricing.flat_rate_tier3_price;
-  }
-
-  const extensionBlockMinutes = Math.max(1, pricing.flat_rate_tier1_minutes);
-  const extensionBlockPrice = Math.max(0, pricing.flat_rate_tier1_price);
-  const overflowMinutes = absMinutes - pricing.flat_rate_tier3_minutes;
-  const overflowBlocks = Math.ceil(overflowMinutes / extensionBlockMinutes);
-
-  return pricing.flat_rate_tier3_price + (overflowBlocks * extensionBlockPrice);
+  return Number.isFinite(bestCost) ? bestCost : pricing.flat_rate_tier1_price;
 }
 
 function loadFlatRateSettings(db, callback) {

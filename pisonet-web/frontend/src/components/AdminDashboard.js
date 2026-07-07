@@ -67,14 +67,37 @@ function getFlatRateSettings(settings = {}) {
 function calculateFlatRateAmountFromMinutes(minutes, settings = {}) {
   const pricing = getFlatRateSettings(settings);
   const absMinutes = Math.ceil(Math.max(0, Number(minutes) || 0));
+  const tiers = [
+    { minutes: pricing.tier1Minutes, price: pricing.tier1Price },
+    { minutes: pricing.tier2Minutes, price: pricing.tier2Price },
+    { minutes: pricing.tier3Minutes, price: pricing.tier3Price },
+  ];
 
   if (absMinutes <= 0) return 0;
-  if (absMinutes <= pricing.tier1Minutes) return pricing.tier1Price;
-  if (absMinutes <= pricing.tier2Minutes) return pricing.tier2Price;
-  if (absMinutes <= pricing.tier3Minutes) return pricing.tier3Price;
 
-  const extensionBlocks = Math.ceil((absMinutes - pricing.tier3Minutes) / Math.max(1, pricing.tier1Minutes));
-  return pricing.tier3Price + (extensionBlocks * pricing.tier1Price);
+  const maxTierMinutes = tiers.reduce((maxMinutes, tier) => Math.max(maxMinutes, tier.minutes), 0);
+  const limit = absMinutes + maxTierMinutes;
+  const bestCostByMinute = Array(limit + 1).fill(Infinity);
+  bestCostByMinute[0] = 0;
+
+  for (let coveredMinutes = 0; coveredMinutes <= limit; coveredMinutes += 1) {
+    if (!Number.isFinite(bestCostByMinute[coveredMinutes])) continue;
+
+    tiers.forEach((tier) => {
+      const nextCoveredMinutes = Math.min(limit, coveredMinutes + tier.minutes);
+      const nextCost = bestCostByMinute[coveredMinutes] + tier.price;
+      if (nextCost < bestCostByMinute[nextCoveredMinutes]) {
+        bestCostByMinute[nextCoveredMinutes] = nextCost;
+      }
+    });
+  }
+
+  let bestCost = Infinity;
+  for (let coveredMinutes = absMinutes; coveredMinutes <= limit; coveredMinutes += 1) {
+    bestCost = Math.min(bestCost, bestCostByMinute[coveredMinutes]);
+  }
+
+  return Number.isFinite(bestCost) ? bestCost : pricing.tier1Price;
 }
 
 function normalizeTransactionRevenue(tx, pricingSettings) {

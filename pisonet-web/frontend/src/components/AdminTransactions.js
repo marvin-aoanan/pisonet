@@ -95,24 +95,39 @@ function AdminTransactions({ adminPassword }) {
     const tier2Price = Math.max(0, Number(flatRateSettings.flat_rate_tier2_price || 10));
     const tier3Minutes = Math.max(tier2Minutes + 1, Number(flatRateSettings.flat_rate_tier3_minutes || 60));
     const tier3Price = Math.max(0, Number(flatRateSettings.flat_rate_tier3_price || 15));
+    const tiers = [
+      { minutes: tier1Minutes, price: tier1Price },
+      { minutes: tier2Minutes, price: tier2Price },
+      { minutes: tier3Minutes, price: tier3Price },
+    ];
 
     const sign = amount < 0 ? -1 : 1;
     const absMinutes = Math.ceil(Math.max(0, Math.abs(amount)));
     if (absMinutes <= 0) return 0;
 
-    let pricedAmount = tier1Price;
-    if (absMinutes <= tier1Minutes) {
-      pricedAmount = tier1Price;
-    } else if (absMinutes <= tier2Minutes) {
-      pricedAmount = tier2Price;
-    } else if (absMinutes <= tier3Minutes) {
-      pricedAmount = tier3Price;
-    } else {
-      const overflowBlocks = Math.ceil((absMinutes - tier3Minutes) / tier1Minutes);
-      pricedAmount = tier3Price + (overflowBlocks * tier1Price);
+    const maxTierMinutes = tiers.reduce((maxMinutes, tier) => Math.max(maxMinutes, tier.minutes), 0);
+    const limit = absMinutes + maxTierMinutes;
+    const bestCostByMinute = Array(limit + 1).fill(Infinity);
+    bestCostByMinute[0] = 0;
+
+    for (let coveredMinutes = 0; coveredMinutes <= limit; coveredMinutes += 1) {
+      if (!Number.isFinite(bestCostByMinute[coveredMinutes])) continue;
+
+      tiers.forEach((tier) => {
+        const nextCoveredMinutes = Math.min(limit, coveredMinutes + tier.minutes);
+        const nextCost = bestCostByMinute[coveredMinutes] + tier.price;
+        if (nextCost < bestCostByMinute[nextCoveredMinutes]) {
+          bestCostByMinute[nextCoveredMinutes] = nextCost;
+        }
+      });
     }
 
-    return sign * pricedAmount;
+    let pricedAmount = Infinity;
+    for (let coveredMinutes = absMinutes; coveredMinutes <= limit; coveredMinutes += 1) {
+      pricedAmount = Math.min(pricedAmount, bestCostByMinute[coveredMinutes]);
+    }
+
+    return sign * (Number.isFinite(pricedAmount) ? pricedAmount : tier1Price);
   };
 
   const columns = [
