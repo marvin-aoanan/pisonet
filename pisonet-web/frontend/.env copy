@@ -1,0 +1,6 @@
+# REACT_APP_API_URL and REACT_APP_WS_URL are intentionally unset so the app
+# dynamically resolves them from window.location.hostname at runtime.
+# This allows access from any device on the LAN (e.g. phones, tablets).
+# Uncomment and set these only for fixed deployments:
+REACT_APP_API_URL=http://192.168.254.200:5001/api
+REACT_APP_WS_URL=ws://192.168.254.200:5001
