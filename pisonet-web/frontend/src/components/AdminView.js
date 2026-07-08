@@ -40,7 +40,7 @@ function TabPanel(props) {
   );
 }
 
-function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword, onAdminPasswordChanged }) {
+function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword, onAdminPasswordChanged }) {
   const [value, setValue] = useState(0);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -74,6 +74,7 @@ function AdminView({ units, totalRevenue, onControl, onAddTime, onOpenTime, onSt
           units={units}
           totalRevenue={totalRevenue}
           onControl={onControl}
+          onTestWake={onTestWake}
           onAddTime={onAddTime}
           onOpenTime={onOpenTime}
           onStopOpenTime={onStopOpenTime}

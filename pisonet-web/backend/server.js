@@ -7,6 +7,8 @@ const path = require('path');
 const ENV_PATH = path.join(__dirname, '.env');
 require('dotenv').config({ path: ENV_PATH });
 const CoinAcceptor = require('./hardware/coin-acceptor');
+const { normalizeMacAddress, sendWakeOnLan, persistWakeStatus } = require('./wake-on-lan');
+const { getUnitOnlineState } = require('./network-status');
 
 const db = require('./database');
 const unitsRouter = require('./routes/units');
@@ -30,11 +32,16 @@ const COIN_DEBOUNCE_MS = parseInt(process.env.COIN_DEBOUNCE_MS || process.env.CO
 const COIN_SETTLE_MS = parseInt(process.env.COIN_SETTLE_MS || '120', 10);
 const COIN_PAYLOAD_MODE = (process.env.COIN_PAYLOAD_MODE || 'auto').toLowerCase();
 const SELECTION_TIMEOUT_MS = parseInt(process.env.SELECTION_TIMEOUT_MS || '30000', 10);
+const WOL_ON_COIN_ENABLED = (process.env.WOL_ON_COIN_ENABLED || 'true').toLowerCase() === 'true';
+const WOL_BROADCAST_ADDRESS = process.env.WOL_BROADCAST_ADDRESS || '255.255.255.255';
+const WOL_PORT = parseInt(process.env.WOL_PORT || '9', 10);
+const WOL_COOLDOWN_MS = parseInt(process.env.WOL_COOLDOWN_MS || '60000', 10);
 
 let coinAcceptor = null;
 let selectedUnit = null;
 let selectionExpiresAt = null;
 let selectionTimeout = null;
+const pendingWakeByUnit = new Map();
 
 function clearSelectedUnit(reason = 'cleared') {
   selectedUnit = null;
@@ -87,6 +94,145 @@ function getSelectionSnapshot() {
     expires_at: selectionExpiresAt,
     timeout_ms: SELECTION_TIMEOUT_MS
   };
+}
+
+function isUnitConnected(unitId) {
+  const unitSet = unitClients.get(Number(unitId));
+  return Boolean(unitSet && unitSet.size > 0);
+}
+
+global.isUnitConnected = isUnitConnected;
+
+function broadcastUnitUpdate(unitId, fields = {}) {
+  if (!global.broadcast) {
+    return;
+  }
+
+  global.broadcast({
+    type: 'UNIT_UPDATE',
+    unit: {
+      id: Number(unitId),
+      ...fields,
+    },
+  });
+}
+
+async function persistWakeStatusAndBroadcast(unitId, status, message, extraFields = {}) {
+  const persisted = await persistWakeStatus(db, unitId, {
+    status,
+    message,
+    attemptedAt: new Date().toISOString(),
+  });
+
+  broadcastUnitUpdate(unitId, {
+    last_wake_status: persisted.status,
+    last_wake_message: persisted.message,
+    last_wake_at: persisted.attemptedAt,
+    ...extraFields,
+  });
+
+  return persisted;
+}
+
+async function getCurrentUnitOnlineState(unit) {
+  if (!unit) {
+    return {
+      is_online: false,
+      online_source: 'offline',
+      ping_status: 'missing_ip',
+      ping_checked_at: null,
+    };
+  }
+
+  return getUnitOnlineState({
+    unitId: unit.id,
+    ipAddress: unit.ip_address,
+    websocketConnected: isUnitConnected(unit.id),
+  });
+}
+
+function shouldSkipWakeCooldown(unitId) {
+  const nextAllowedWakeAt = pendingWakeByUnit.get(Number(unitId)) || 0;
+  if (Date.now() < nextAllowedWakeAt) {
+    return true;
+  }
+
+  pendingWakeByUnit.delete(Number(unitId));
+  return false;
+}
+
+async function triggerWakeOnLanIfNeeded(unit) {
+  if (!WOL_ON_COIN_ENABLED || !unit) {
+    return { attempted: false, status: 'skipped', reason: 'disabled_or_missing_unit' };
+  }
+
+  const unitId = Number(unit.id);
+  if (!unitId) {
+    return { attempted: false, status: 'failed', reason: 'invalid_unit' };
+  }
+
+  const onlineState = await getCurrentUnitOnlineState(unit);
+  if (onlineState.is_online) {
+    const message = `Unit already online via ${onlineState.online_source}. Wake skipped.`;
+    await persistWakeStatusAndBroadcast(unitId, 'skipped', message, onlineState);
+    return { attempted: false, status: 'skipped', reason: 'unit_online', message, ...onlineState };
+  }
+
+  if (shouldSkipWakeCooldown(unitId)) {
+    const message = 'Wake cooldown active. Wake skipped.';
+    await persistWakeStatusAndBroadcast(unitId, 'skipped', message, onlineState);
+    return { attempted: false, status: 'skipped', reason: 'cooldown_active', message, ...onlineState };
+  }
+
+  const normalizedMacAddress = normalizeMacAddress(unit.mac_address);
+  if (!normalizedMacAddress) {
+    const message = 'Missing or invalid MAC address. Wake not sent.';
+    await persistWakeStatusAndBroadcast(unitId, 'failed', message, onlineState);
+    return { attempted: false, status: 'failed', reason: 'missing_or_invalid_mac', message, ...onlineState };
+  }
+
+  pendingWakeByUnit.set(unitId, Date.now() + Math.max(1000, WOL_COOLDOWN_MS));
+
+  try {
+    const result = await sendWakeOnLan(normalizedMacAddress, {
+      address: WOL_BROADCAST_ADDRESS,
+      port: WOL_PORT,
+    });
+    const message = `Magic packet sent to ${result.macAddress} via ${result.address}:${result.port}`;
+
+    const persisted = await persistWakeStatusAndBroadcast(unitId, 'sent', message, onlineState);
+
+    console.log(`Wake-on-LAN packet sent to unit ${unitId} (${result.macAddress}) via ${result.address}:${result.port}`);
+    if (global.broadcast) {
+      global.broadcast({
+        type: 'WAKE_ON_LAN_SENT',
+        unit_id: unitId,
+        mac_address: result.macAddress,
+        address: result.address,
+        port: result.port,
+        message,
+        last_wake_status: persisted.status,
+        last_wake_at: persisted.attemptedAt,
+      });
+    }
+
+    return { attempted: true, status: 'sent', reason: 'sent', message, attempted_at: persisted.attemptedAt, ...result, ...onlineState };
+  } catch (error) {
+    pendingWakeByUnit.delete(unitId);
+    const message = error.message || 'Wake-on-LAN send failed';
+    const persisted = await persistWakeStatusAndBroadcast(unitId, 'failed', message, onlineState);
+    console.error(`Failed to send Wake-on-LAN packet to unit ${unitId}:`, error.message);
+    if (global.broadcast) {
+      global.broadcast({
+        type: 'WAKE_ON_LAN_FAILED',
+        unit_id: unitId,
+        error: message,
+        last_wake_status: persisted.status,
+        last_wake_at: persisted.attemptedAt,
+      });
+    }
+    return { attempted: true, status: 'failed', reason: 'failed', error: message, message, attempted_at: persisted.attemptedAt, ...onlineState };
+  }
 }
 
 function addCoinToUnit(unitId, amountValue, source = 'api', cb) {
@@ -142,14 +288,32 @@ function addCoinToUnit(unitId, amountValue, source = 'api', cb) {
             });
           }
 
-          return cb(null, {
-            unit_id: unitId,
-            amount: amountValue,
-            seconds_added: secondsToAdd,
-            new_remaining_seconds: newSeconds,
-            status: newStatus,
-            source
-          });
+          triggerWakeOnLanIfNeeded(unit)
+            .then((wakeOnLan) => cb(null, {
+              unit_id: unitId,
+              amount: amountValue,
+              seconds_added: secondsToAdd,
+              new_remaining_seconds: newSeconds,
+              status: newStatus,
+              source,
+              wake_on_lan: wakeOnLan,
+            }))
+            .catch((wakeError) => {
+              console.error(`Unexpected Wake-on-LAN flow error for unit ${unitId}:`, wakeError.message);
+              cb(null, {
+                unit_id: unitId,
+                amount: amountValue,
+                seconds_added: secondsToAdd,
+                new_remaining_seconds: newSeconds,
+                status: newStatus,
+                source,
+                wake_on_lan: {
+                  attempted: true,
+                  reason: 'failed',
+                  error: wakeError.message,
+                },
+              });
+            });
         }
       );
     });
@@ -500,10 +664,6 @@ wss.on('connection', (ws, req) => {
     unitSet.delete(ws);
     if (unitSet.size === 0) {
       unitClients.delete(unitId);
-      // Clear the persisted IP so admin can see the unit went offline.
-      db.run('UPDATE units SET ip_address = NULL WHERE id = ?', [unitId], (err) => {
-        if (err) console.error(`Error clearing ip_address for unit ${unitId}:`, err);
-      });
     }
   };
 
@@ -660,6 +820,7 @@ async function startServer() {
     console.log(`   Environment: ${NODE_ENV}`);
     console.log(`   Env File: ${ENV_PATH} (exists: ${fs.existsSync(ENV_PATH)})`);
     console.log(`   Coin Env: enabled=${process.env.COIN_ACCEPTOR_ENABLED || 'undefined'}, port=${process.env.SERIAL_PORT || 'undefined'}, baud=${process.env.BAUD_RATE || 'undefined'}`);
+    console.log(`   Wake-on-LAN: enabled=${WOL_ON_COIN_ENABLED}, broadcast=${WOL_BROADCAST_ADDRESS}:${WOL_PORT}, cooldown=${WOL_COOLDOWN_MS}ms`);
     console.log(`   Database: ${process.env.DATABASE_PATH || './pisonet.db'}`);
     console.log(`   CORS Origin: ${process.env.CORS_ORIGIN || '*'}`);
     console.log(`   WebSocket: ws://0.0.0.0:${PORT}`);

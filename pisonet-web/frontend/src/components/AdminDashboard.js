@@ -31,6 +31,7 @@ import {
   Block as BlockIcon,
   AttachMoney as MoneyIcon,
   Computer as ComputerIcon,
+  FlashOn as FlashOnIcon,
   Logout as LogoutIcon,
   RestartAlt as RestartAltIcon,
 } from '@mui/icons-material';
@@ -112,7 +113,7 @@ function normalizeTransactionRevenue(tx, pricingSettings) {
   return amount;
 }
 
-function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword }) {
+function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword }) {
   const [loading, setLoading] = useState(null);
   const [dailyRevenue, setDailyRevenue] = useState([]);
   const [weekIndex, setWeekIndex] = useState(null);
@@ -175,6 +176,76 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
 
   const isUnitActive = (unit) => {
     return unit.open_time === 1 || Number(unit.remaining_seconds || 0) > 0 || String(unit.status || '').toLowerCase() === 'active';
+  };
+
+  const getNetworkCaption = (unit) => {
+    if (unit.is_online) {
+      const sourceText = unit.online_source === 'websocket' ? 'online' : 'online via ping';
+      return {
+        text: `● ${sourceText}${unit.ip_address ? ` ${unit.ip_address}` : ''}`,
+        color: 'success.main',
+      };
+    }
+
+    if (unit.ip_address) {
+      return {
+        text: `○ offline ${unit.ip_address}`,
+        color: 'text.disabled',
+      };
+    }
+
+    return {
+      text: '○ offline',
+      color: 'text.disabled',
+    };
+  };
+
+  const getWakeStatusColor = (status) => {
+    if (status === 'sent') return 'success';
+    if (status === 'failed') return 'error';
+    if (status === 'skipped') return 'warning';
+    return 'default';
+  };
+
+  const getWakeStatusLabel = (status) => {
+    if (status === 'sent') return 'WoL Sent';
+    if (status === 'failed') return 'WoL Failed';
+    if (status === 'skipped') return 'WoL Skipped';
+    return 'WoL';
+  };
+
+  const formatWakeTimestamp = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const renderWakeStatus = (unit) => {
+    if (!unit.last_wake_status) {
+      return null;
+    }
+
+    return (
+      <Box sx={{ mt: 0.5, display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Chip
+          label={getWakeStatusLabel(unit.last_wake_status)}
+          size="small"
+          color={getWakeStatusColor(unit.last_wake_status)}
+          variant="outlined"
+        />
+        {unit.last_wake_message && (
+          <Typography variant="caption" color="text.secondary">
+            {unit.last_wake_message}
+          </Typography>
+        )}
+        {unit.last_wake_at && (
+          <Typography variant="caption" color="text.disabled">
+            {formatWakeTimestamp(unit.last_wake_at)}
+          </Typography>
+        )}
+      </Box>
+    );
   };
 
   const getSessionRevenueDisplay = (unit) => {
@@ -564,12 +635,16 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
               {/* Header row: name + status */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                 <Box>
+                  {(() => {
+                    const networkCaption = getNetworkCaption(unit);
+                    return (
+                      <>
                   <Typography variant="subtitle1" fontWeight="bold">{unit.name}</Typography>
-                  {unit.ip_address ? (
-                    <Typography variant="caption" color="success.main" display="block">● {unit.ip_address}</Typography>
-                  ) : (
-                    <Typography variant="caption" color="text.disabled" display="block">○ offline</Typography>
-                  )}
+                        <Typography variant="caption" color={networkCaption.color} display="block">{networkCaption.text}</Typography>
+                        {renderWakeStatus(unit)}
+                      </>
+                    );
+                  })()}
                 </Box>
                 <Chip
                   label={unit.remaining_seconds > 0 ? 'ACTIVE' : 'IDLE'}
@@ -620,6 +695,21 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   </Button>
                 </Tooltip>
               </ButtonGroup>
+              <Tooltip title={unit.mac_address ? 'Send Wake-on-LAN test packet' : 'Set a MAC address first in Admin Settings'}>
+                <span>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    fullWidth
+                    startIcon={<FlashOnIcon fontSize="small" />}
+                    onClick={() => handleAction(unit.id, 'test_wake', () => onTestWake(unit.id))}
+                    disabled={loading === unit.id || !unit.mac_address}
+                    sx={{ mb: 1.5 }}
+                  >
+                    Test Wake
+                  </Button>
+                </span>
+              </Tooltip>
 
               {/* Timer Control */}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Timer Control</Typography>
@@ -689,14 +779,18 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                   sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                 >
                   <TableCell component="th" scope="row">
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {unit.name}
-                    </Typography>
-                    {unit.ip_address ? (
-                      <Typography variant="caption" color="success.main" display="block">● {unit.ip_address}</Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled" display="block">○ offline</Typography>
-                    )}
+                    {(() => {
+                      const networkCaption = getNetworkCaption(unit);
+                      return (
+                        <>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {unit.name}
+                          </Typography>
+                          <Typography variant="caption" color={networkCaption.color} display="block">{networkCaption.text}</Typography>
+                          {renderWakeStatus(unit)}
+                        </>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Chip
@@ -721,6 +815,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: 'center' }}>
                     <ButtonGroup variant="outlined" size="small">
                       <Tooltip title="Logout – Clear remaining time">
                         <Button
@@ -750,6 +845,20 @@ function AdminDashboard({ units, totalRevenue, onControl, onAddTime, onOpenTime,
                         </Button>
                       </Tooltip>
                     </ButtonGroup>
+                    <Tooltip title={unit.mac_address ? 'Send Wake-on-LAN test packet' : 'Set a MAC address first in Admin Settings'}>
+                      <span>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<FlashOnIcon fontSize="small" />}
+                          onClick={() => handleAction(unit.id, 'test_wake', () => onTestWake(unit.id))}
+                          disabled={loading === unit.id || !unit.mac_address}
+                        >
+                          Test Wake
+                        </Button>
+                      </span>
+                    </Tooltip>
+                    </Box>
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center', width: 180, mx: 'auto' }}>

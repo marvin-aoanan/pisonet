@@ -225,6 +225,22 @@ function initializeDatabase() {
       }
     });
 
+    db.run('ALTER TABLE units ADD COLUMN last_wake_status TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.last_wake_status column:', err);
+      }
+    });
+    db.run('ALTER TABLE units ADD COLUMN last_wake_message TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.last_wake_message column:', err);
+      }
+    });
+    db.run('ALTER TABLE units ADD COLUMN last_wake_at TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.last_wake_at column:', err);
+      }
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

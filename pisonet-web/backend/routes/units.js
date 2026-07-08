@@ -3,6 +3,11 @@ const router = express.Router();
 const db = require('../database');
 const { requireAdminAuth } = require('../admin-auth');
 const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('../pricing');
+const { normalizeMacAddress, sendWakeOnLan, persistWakeStatus } = require('../wake-on-lan');
+const { getUnitOnlineState, normalizeIpv4Address } = require('../network-status');
+
+const WOL_BROADCAST_ADDRESS = process.env.WOL_BROADCAST_ADDRESS || '255.255.255.255';
+const WOL_PORT = parseInt(process.env.WOL_PORT || '9', 10);
 
 function calculateOpenTimeAmount(elapsedSeconds, pricingSettings) {
   const elapsedMinutes = Math.max(0, Number(elapsedSeconds || 0) / 60);
@@ -30,6 +35,76 @@ function getOpenTimeMetrics(unit, pricingSettings, nowMs = Date.now()) {
   };
 }
 
+async function enrichUnitForDashboard(unit, pricingSettings, nowMs = Date.now()) {
+  const onlineState = await getUnitOnlineState({
+    unitId: unit.id,
+    ipAddress: unit.ip_address,
+    websocketConnected: typeof global.isUnitConnected === 'function' && global.isUnitConnected(unit.id),
+  });
+
+  if (unit.open_time) {
+    const metrics = getOpenTimeMetrics(unit, pricingSettings, nowMs);
+    return {
+      ...unit,
+      open_time_paused: metrics.isPaused ? 1 : 0,
+      open_time_elapsed: metrics.elapsedSeconds,
+      open_time_amount: metrics.amountOwed,
+      ...onlineState,
+    };
+  }
+
+  return {
+    ...unit,
+    open_time_paused: 0,
+    open_time_elapsed: 0,
+    open_time_amount: 0,
+    ...onlineState,
+  };
+}
+
+function broadcastUnitUpdate(unitId, fields = {}) {
+  if (!global.broadcast) {
+    return;
+  }
+
+  global.broadcast({
+    type: 'UNIT_UPDATE',
+    unit: {
+      id: Number(unitId),
+      ...fields,
+    },
+  });
+}
+
+async function persistWakeStatusAndBroadcast(unitId, status, message, extraFields = {}) {
+  const persisted = await persistWakeStatus(db, unitId, {
+    status,
+    message,
+    attemptedAt: new Date().toISOString(),
+  });
+
+  broadcastUnitUpdate(unitId, {
+    last_wake_status: persisted.status,
+    last_wake_message: persisted.message,
+    last_wake_at: persisted.attemptedAt,
+    ...extraFields,
+  });
+
+  return persisted;
+}
+
+function logHardwareAction(unitId, action, status) {
+  db.run(
+    'INSERT INTO hardware_log (unit_id, action, timestamp, status) VALUES (?, ?, ?, ?)',
+    [unitId, action, new Date().toISOString(), status],
+    (err) => {
+      if (err) {
+        console.error('Error logging hardware action:', err);
+      }
+    }
+  );
+}
+
 // GET all units with session info
 router.get('/', (req, res) => {
   loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
@@ -46,25 +121,13 @@ router.get('/', (req, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      const now = Date.now();
-      const enriched = rows.map((row) => {
-        if (row.open_time) {
-          const metrics = getOpenTimeMetrics(row, pricingSettings, now);
-          return {
-            ...row,
-            open_time_paused: metrics.isPaused ? 1 : 0,
-            open_time_elapsed: metrics.elapsedSeconds,
-            open_time_amount: metrics.amountOwed,
-          };
-        }
-        return {
-          ...row,
-          open_time_paused: 0,
-          open_time_elapsed: 0,
-          open_time_amount: 0,
-        };
+      (async () => {
+        const now = Date.now();
+        const enriched = await Promise.all((rows || []).map((row) => enrichUnitForDashboard(row, pricingSettings, now)));
+        res.json(enriched);
+      })().catch((enrichErr) => {
+        res.status(500).json({ error: enrichErr.message });
       });
-      res.json(enriched);
     });
   });
 });
@@ -96,7 +159,15 @@ router.get('/:id', (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Unit not found' });
     }
-    res.json(row);
+    loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+      if (pricingErr) {
+        return res.status(500).json({ error: pricingErr.message });
+      }
+
+      enrichUnitForDashboard(row, pricingSettings)
+        .then((unit) => res.json(unit))
+        .catch((enrichErr) => res.status(500).json({ error: enrichErr.message }));
+    });
   });
 });
 
@@ -526,6 +597,133 @@ router.post('/:id/control', requireAdminAuth, (req, res) => {
   }
 });
 
+router.post('/:id/wake', requireAdminAuth, (req, res) => {
+  const unitId = parseInt(req.params.id, 10);
+
+  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (!unit) {
+      return res.status(404).json({ error: 'Unit not found' });
+    }
+
+    (async () => {
+      const onlineState = await getUnitOnlineState({
+        unitId,
+        ipAddress: unit.ip_address,
+        websocketConnected: typeof global.isUnitConnected === 'function' && global.isUnitConnected(unitId),
+      });
+
+      if (onlineState.is_online) {
+        const message = `Unit already online via ${onlineState.online_source}. Wake skipped.`;
+        const persisted = await persistWakeStatusAndBroadcast(unitId, 'skipped', message, onlineState);
+        logHardwareAction(unitId, 'wake_test', 'skipped');
+
+        return res.json({
+          message,
+          unit_id: unitId,
+          wake_on_lan: {
+            attempted: false,
+            status: 'skipped',
+            reason: 'unit_online',
+            message,
+            attempted_at: persisted.attemptedAt,
+            ...onlineState,
+          },
+        });
+      }
+
+      const normalizedMacAddress = normalizeMacAddress(unit.mac_address);
+      if (!normalizedMacAddress) {
+        const message = 'Missing or invalid MAC address. Save a valid MAC address before testing Wake-on-LAN.';
+        const persisted = await persistWakeStatusAndBroadcast(unitId, 'failed', message, onlineState);
+        logHardwareAction(unitId, 'wake_test', 'failed');
+
+        return res.status(400).json({
+          error: message,
+          unit_id: unitId,
+          wake_on_lan: {
+            attempted: false,
+            status: 'failed',
+            reason: 'missing_or_invalid_mac',
+            message,
+            attempted_at: persisted.attemptedAt,
+            ...onlineState,
+          },
+        });
+      }
+
+      try {
+        const result = await sendWakeOnLan(normalizedMacAddress, {
+          address: WOL_BROADCAST_ADDRESS,
+          port: WOL_PORT,
+        });
+        const message = `Magic packet sent to ${result.macAddress} via ${result.address}:${result.port}`;
+        const persisted = await persistWakeStatusAndBroadcast(unitId, 'sent', message, onlineState);
+        logHardwareAction(unitId, 'wake_test', 'sent');
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'WAKE_ON_LAN_SENT',
+            unit_id: unitId,
+            mac_address: result.macAddress,
+            address: result.address,
+            port: result.port,
+            message,
+            last_wake_status: persisted.status,
+            last_wake_at: persisted.attemptedAt,
+          });
+        }
+
+        return res.json({
+          message,
+          unit_id: unitId,
+          wake_on_lan: {
+            attempted: true,
+            status: 'sent',
+            reason: 'sent',
+            message,
+            attempted_at: persisted.attemptedAt,
+            ...result,
+            ...onlineState,
+          },
+        });
+      } catch (wakeError) {
+        const message = wakeError.message || 'Wake-on-LAN send failed';
+        const persisted = await persistWakeStatusAndBroadcast(unitId, 'failed', message, onlineState);
+        logHardwareAction(unitId, 'wake_test', 'failed');
+
+        if (global.broadcast) {
+          global.broadcast({
+            type: 'WAKE_ON_LAN_FAILED',
+            unit_id: unitId,
+            error: message,
+            last_wake_status: persisted.status,
+            last_wake_at: persisted.attemptedAt,
+          });
+        }
+
+        return res.status(500).json({
+          error: message,
+          unit_id: unitId,
+          wake_on_lan: {
+            attempted: true,
+            status: 'failed',
+            reason: 'failed',
+            message,
+            attempted_at: persisted.attemptedAt,
+            ...onlineState,
+          },
+        });
+      }
+    })().catch((wakeErr) => {
+      res.status(500).json({ error: wakeErr.message });
+    });
+  });
+});
+
 // GET hardware control log for unit
 router.get('/:id/hardware-log', (req, res) => {
   const unitId = req.params.id;
@@ -819,18 +1017,27 @@ router.put('/:id', requireAdminAuth, (req, res) => {
     values.push(name);
   }
   if (typeof mac_address !== 'undefined') {
-    updates.push('mac_address = ?');
-    values.push(mac_address || null);
+    const trimmedMac = String(mac_address || '').trim();
+    if (trimmedMac) {
+      const normalizedMac = normalizeMacAddress(trimmedMac);
+      if (!normalizedMac) {
+        return res.status(400).json({ error: 'Invalid MAC address format' });
+      }
+      updates.push('mac_address = ?');
+      values.push(normalizedMac);
+    } else {
+      updates.push('mac_address = ?');
+      values.push(null);
+    }
   }
   if (typeof ip_address !== 'undefined') {
-    const trimmedIp = String(ip_address || '').trim();
-    if (trimmedIp) {
-      const ipv4Pattern = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
-      if (!ipv4Pattern.test(trimmedIp)) {
+    const normalizedIp = normalizeIpv4Address(ip_address);
+    if (String(ip_address || '').trim()) {
+      if (!normalizedIp) {
         return res.status(400).json({ error: 'Invalid IPv4 address format' });
       }
       updates.push('ip_address = ?');
-      values.push(trimmedIp);
+      values.push(normalizedIp);
     } else {
       updates.push('ip_address = ?');
       values.push(null);
