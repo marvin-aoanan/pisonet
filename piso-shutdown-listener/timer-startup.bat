@@ -5,7 +5,7 @@ rem Per-client overrides. TIMER_UNIT is optional on diskless clients whose IP
 rem falls in 192.168.254.151-160 (unit is auto-detected from the IP). Uncomment
 rem and edit any line you need to override the default.
 rem set "TIMER_UNIT=1"
-rem set "TIMER_SERVER=192.168.254.201"
+rem set "TIMER_SERVER=192.168.254.200"
 rem set "TIMER_WSPORT=5001"
 rem set "TIMER_GRACE=60"
 rem set "TIMER_UNLOCK_PASSWORD=44"

@@ -9,7 +9,7 @@ set "UNIT=%TIMER_UNIT%"
 rem If UNIT is not set, the overlay will auto-detect it from the client IP (192.168.254.151-160).
 
 set "SERVER=%TIMER_SERVER%"
-if not defined SERVER set "SERVER=192.168.254.201"
+if not defined SERVER set "SERVER=192.168.254.200"
 
 set "WSPORT=%TIMER_WSPORT%"
 if not defined WSPORT set "WSPORT=5001"

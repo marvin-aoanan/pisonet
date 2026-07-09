@@ -384,6 +384,42 @@ function App() {
     }
   };
 
+  // Handle manual Wake-on-LAN test (admin feature)
+  const handleTestWake = async (unitId) => {
+    try {
+      const response = await axios.post(
+        `${API_URL}/units/${unitId}/wake`,
+        {},
+        {
+          headers: {
+            'x-admin-password': adminPassword
+          }
+        }
+      );
+
+      const wake = response?.data?.wake_on_lan || {};
+      if (wake.status === 'skipped') {
+        setStatusMessage(`ℹ️ ${wake.message || `PC ${unitId} is already online`}`);
+      } else {
+        setStatusMessage(`⚡ ${wake.message || `Wake packet sent to PC ${unitId}`}`);
+      }
+      fetchUnits();
+    } catch (error) {
+      console.error('Error testing Wake-on-LAN:', error);
+      if (error?.response?.status === 401) {
+        setStatusMessage('🔒 Admin password required. Please log in again.');
+        setViewMode('customer');
+        setAdminPassword('');
+        setAdminAuthOpen(true);
+        throw error;
+      }
+
+      setStatusMessage(error?.response?.data?.error || `❌ Wake test failed on PC ${unitId}`);
+      fetchUnits();
+      throw error;
+    }
+  };
+
   // Handle timer adjustment (admin feature)
   const handleAddTime = async (unitId, minutes) => {
     try {
@@ -650,6 +686,7 @@ function App() {
                   units={units}
                   totalRevenue={totalRevenue}
                   onControl={handleControl}
+                  onTestWake={handleTestWake}
                   onAddTime={handleAddTime}
                   onOpenTime={handleOpenTime}
                   onStopOpenTime={handleStopOpenTime}
