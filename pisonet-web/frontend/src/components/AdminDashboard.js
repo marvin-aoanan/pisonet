@@ -227,7 +227,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
     }
 
     return (
-      <Box sx={{ mt: 0.5, display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <Chip
           label={getWakeStatusLabel(unit.last_wake_status)}
           size="small"
@@ -782,13 +782,25 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
                     {(() => {
                       const networkCaption = getNetworkCaption(unit);
                       return (
-                        <>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {unit.name}
-                          </Typography>
-                          <Typography variant="caption" color={networkCaption.color} display="block">{networkCaption.text}</Typography>
-                          {renderWakeStatus(unit)}
-                        </>
+                          <Box
+                            sx={{
+                              display: 'grid',
+                              gridTemplateColumns: 'auto auto',
+                              columnGap: 1,
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Box>
+                              <Typography variant="h4" fontWeight="bold" lineHeight={1.2}>
+                                {unit.name}
+                              </Typography>
+                              
+                            </Box>
+                            <Box sx={{ justifySelf: 'center', display: 'none', }}>
+                              <Typography variant="caption" color={networkCaption.color} display="block">{networkCaption.text}</Typography>
+                              {renderWakeStatus(unit)}
+                            </Box>
+                          </Box>
                       );
                     })()}
                   </TableCell>

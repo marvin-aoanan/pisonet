@@ -70,7 +70,7 @@ function CustomerView({ units, onSelectUnit }) {
           <CardContent sx={{ textAlign: 'center', p: 1, pb: 0.5, display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
             <PcIcon sx={{ fontSize: 28, color: unit.open_time === 1 ? 'warning.main' : unit.remaining_seconds > 0 ? 'success.main' : 'text.disabled', mb: 0.5 }} />
 
-            <Typography variant="subtitle1" component="div" gutterBottom>
+            <Typography variant="h4" component="div" gutterBottom>
               {unit.name}
             </Typography>
 
