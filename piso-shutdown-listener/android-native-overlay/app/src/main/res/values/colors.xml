@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_normal">#021526</color>
+    <color name="bg_warning">#332300</color>
+    <color name="bg_critical">#3A0D0D</color>
+    <color name="bg_open_time">#1A4D2E</color>
+    <color name="fg_normal">#00FF66</color>
+    <color name="fg_warning">#FFAD42</color>
+    <color name="fg_critical">#FF5C5C</color>
+    <color name="fg_soft">#B3C3D3</color>
+    <color name="white">#FFFFFF</color>
+    <color name="yellow_hint">#FFCC66</color>
+    <color name="indicator_online">#00E676</color>
+    <color name="indicator_offline">#FF1744</color>
+</resources>

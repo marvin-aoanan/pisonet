@@ -2,6 +2,12 @@
 
 This folder is for running `timer-overlay.py` only.
 
+## Native Android App Version
+
+A native Android version is available in `android-native-overlay/`.
+
+See `android-native-overlay/README.md` for build and setup instructions.
+
 ## 1. Requirements
 - Python 3.9+ installed
 - Network access to your timer source server (WebSocket/API)
