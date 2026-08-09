@@ -10,6 +10,45 @@ let SqlJsModule = null;
 let saveTimer = null;
 let pendingSave = false;
 
+function buildCorruptDbPath() {
+  const parsedPath = path.parse(dbPath);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return path.join(parsedPath.dir, `${parsedPath.name}.corrupt-${timestamp}${parsedPath.ext}`);
+}
+
+function quarantineInvalidDatabaseFile(loadErr) {
+  const corruptPath = buildCorruptDbPath();
+
+  try {
+    fs.renameSync(dbPath, corruptPath);
+    console.warn(`⚠️ Invalid SQLite database detected. Moved corrupt file to ${corruptPath}`);
+  } catch (renameErr) {
+    console.warn('⚠️ Invalid SQLite database detected, but failed to quarantine the file:', renameErr);
+  }
+
+  console.warn('⚠️ Starting with a fresh SQLite database after load failure:', loadErr);
+  sqlDb = new SqlJsModule.Database();
+}
+
+function loadDatabaseFile(SQL) {
+  const fileBuffer = fs.readFileSync(dbPath);
+  const candidateDb = new SQL.Database(new Uint8Array(fileBuffer));
+
+  try {
+    candidateDb.exec('SELECT name FROM sqlite_master LIMIT 1;');
+    return candidateDb;
+  } catch (validationErr) {
+    try {
+      candidateDb.close();
+    } catch (closeErr) {
+      console.warn('⚠️ Failed to close invalid SQLite candidate:', closeErr);
+    }
+
+    quarantineInvalidDatabaseFile(validationErr);
+    return sqlDb;
+  }
+}
+
 function writeCurrentDbToFile(targetPath) {
   if (!sqlDb) {
     throw new Error('Database is not initialized');
@@ -334,8 +373,11 @@ db.ready = initSqlJs({
   SqlJsModule = SQL;
 
   if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    sqlDb = new SQL.Database(new Uint8Array(fileBuffer));
+    try {
+      sqlDb = loadDatabaseFile(SQL);
+    } catch (loadErr) {
+      quarantineInvalidDatabaseFile(loadErr);
+    }
   } else {
     sqlDb = new SQL.Database();
   }

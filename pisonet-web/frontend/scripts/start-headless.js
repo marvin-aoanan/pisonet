@@ -12,7 +12,7 @@ const targetUrl = `http://${host}:${port}`;
 const reactScriptsPath = path.join(projectRoot, 'node_modules', 'react-scripts', 'bin', 'react-scripts.js');
 const buildDir = path.join(projectRoot, 'build');
 const browserProfileRootDir = path.join(projectRoot, '.chrome-headless-profile');
-const browserProfileDir = path.join(browserProfileRootDir, String(process.pid));
+const browserProfileDir = path.join(browserProfileRootDir, 'active');
 const mode = process.argv[2] || 'start';
 
 const chromeCandidates = [
@@ -110,13 +110,46 @@ function waitForServer(url, timeoutMs = 120000) {
   });
 }
 
+function cleanupBrowserProfileRoot() {
+  if (!fs.existsSync(browserProfileRootDir)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(browserProfileRootDir, { withFileTypes: true })) {
+    const entryPath = path.join(browserProfileRootDir, entry.name);
+
+    if (entryPath === browserProfileDir) {
+      continue;
+    }
+
+    fs.rmSync(entryPath, { recursive: true, force: true });
+  }
+}
+
+function resetBrowserProfileDir() {
+  fs.mkdirSync(browserProfileRootDir, { recursive: true });
+  cleanupBrowserProfileRoot();
+  fs.rmSync(browserProfileDir, { recursive: true, force: true });
+  fs.mkdirSync(browserProfileDir, { recursive: true });
+}
+
+function removeBrowserProfileRootIfEmpty() {
+  if (!fs.existsSync(browserProfileRootDir)) {
+    return;
+  }
+
+  if (fs.readdirSync(browserProfileRootDir).length === 0) {
+    fs.rmSync(browserProfileRootDir, { recursive: true, force: true });
+  }
+}
+
 function launchHeadlessChrome(chromeBinary) {
   if (launchedBrowser) {
     return;
   }
 
   launchedBrowser = true;
-  fs.mkdirSync(browserProfileDir, { recursive: true });
+  resetBrowserProfileDir();
 
   browserProcess = spawn(chromeBinary, [
     '--headless=new',
@@ -214,6 +247,7 @@ function shutdown(exitCode = 0) {
     staticServer.close();
   }
   fs.rmSync(browserProfileDir, { recursive: true, force: true });
+  removeBrowserProfileRootIfEmpty();
   process.exit(exitCode);
 }
 
