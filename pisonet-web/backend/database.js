@@ -2,18 +2,76 @@ const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'pisonet.db');
+function resolveDatabasePath(configPath) {
+  if (!configPath) {
+    return path.join(__dirname, 'pisonet.db');
+  }
+
+  if (path.isAbsolute(configPath)) {
+    return configPath;
+  }
+
+  return path.resolve(__dirname, configPath);
+}
+
+const dbPath = resolveDatabasePath(process.env.DATABASE_PATH);
 const wasmPath = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
+const AUTO_BACKUP_INTERVAL_MS = 30 * 60 * 1000;
+const AUTO_BACKUP_DIR = path.join(path.dirname(dbPath), 'backups', 'auto');
 
 let sqlDb = null;
 let SqlJsModule = null;
 let saveTimer = null;
 let pendingSave = false;
+let autoBackupTimer = null;
 
 function buildCorruptDbPath() {
   const parsedPath = path.parse(dbPath);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.join(parsedPath.dir, `${parsedPath.name}.corrupt-${timestamp}${parsedPath.ext}`);
+}
+
+function buildBackupDbPath(targetPath = dbPath) {
+  return `${targetPath}.bak`;
+}
+
+function buildAutoBackupPath() {
+  const parsedPath = path.parse(dbPath);
+  return path.join(AUTO_BACKUP_DIR, `${parsedPath.name}.auto${parsedPath.ext}`);
+}
+
+function writeDatabaseFileAtomically(targetPath, dataBuffer) {
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  const backupPath = buildBackupDbPath(targetPath);
+
+  try {
+    const fd = fs.openSync(tempPath, 'w');
+    try {
+      fs.writeFileSync(fd, dataBuffer);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    if (fs.existsSync(targetPath)) {
+      fs.copyFileSync(targetPath, backupPath);
+    }
+
+    if (fs.existsSync(targetPath)) {
+      fs.rmSync(targetPath, { force: true });
+    }
+
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.rmSync(tempPath, { force: true });
+      }
+    } catch (cleanupErr) {
+      console.warn('⚠️ Failed to clean up temporary database file:', cleanupErr);
+    }
+    throw err;
+  }
 }
 
 function quarantineInvalidDatabaseFile(loadErr) {
@@ -31,22 +89,31 @@ function quarantineInvalidDatabaseFile(loadErr) {
 }
 
 function loadDatabaseFile(SQL) {
-  const fileBuffer = fs.readFileSync(dbPath);
-  const candidateDb = new SQL.Database(new Uint8Array(fileBuffer));
+  const candidatePaths = [dbPath, buildBackupDbPath(dbPath)];
 
-  try {
-    candidateDb.exec('SELECT name FROM sqlite_master LIMIT 1;');
-    return candidateDb;
-  } catch (validationErr) {
-    try {
-      candidateDb.close();
-    } catch (closeErr) {
-      console.warn('⚠️ Failed to close invalid SQLite candidate:', closeErr);
+  for (const candidatePath of candidatePaths) {
+    if (!fs.existsSync(candidatePath)) {
+      continue;
     }
 
-    quarantineInvalidDatabaseFile(validationErr);
-    return sqlDb;
+    try {
+      const fileBuffer = fs.readFileSync(candidatePath);
+      const candidateDb = new SQL.Database(new Uint8Array(fileBuffer));
+      candidateDb.exec('SELECT name FROM sqlite_master LIMIT 1;');
+
+      if (candidatePath !== dbPath) {
+        writeDatabaseFileAtomically(dbPath, Buffer.from(candidateDb.export()));
+        console.warn(`⚠️ Recovered database from backup: ${candidatePath}`);
+      }
+
+      return candidateDb;
+    } catch (validationErr) {
+      continue;
+    }
   }
+
+  quarantineInvalidDatabaseFile(new Error('No valid database snapshot was available'));
+  return sqlDb;
 }
 
 function writeCurrentDbToFile(targetPath) {
@@ -55,7 +122,36 @@ function writeCurrentDbToFile(targetPath) {
   }
 
   const data = sqlDb.export();
-  fs.writeFileSync(targetPath, Buffer.from(data));
+  writeDatabaseFileAtomically(targetPath, Buffer.from(data));
+}
+
+function performAutoBackup() {
+  if (!sqlDb) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
+    const autoBackupPath = buildAutoBackupPath();
+    writeCurrentDbToFile(autoBackupPath);
+    console.log(`💾 Auto backup saved: ${autoBackupPath}`);
+  } catch (backupErr) {
+    console.error('⚠️ Auto backup failed:', backupErr);
+  }
+}
+
+function startAutoBackupScheduler() {
+  if (autoBackupTimer) {
+    return;
+  }
+
+  autoBackupTimer = setInterval(() => {
+    performAutoBackup();
+  }, AUTO_BACKUP_INTERVAL_MS);
+
+  if (typeof autoBackupTimer.unref === 'function') {
+    autoBackupTimer.unref();
+  }
 }
 
 function scheduleSave() {
@@ -67,7 +163,7 @@ function scheduleSave() {
   saveTimer = setTimeout(() => {
     if (pendingSave && sqlDb) {
       const data = sqlDb.export();
-      fs.writeFileSync(dbPath, Buffer.from(data));
+      writeDatabaseFileAtomically(dbPath, Buffer.from(data));
     }
     pendingSave = false;
     saveTimer = null;
@@ -385,6 +481,7 @@ db.ready = initSqlJs({
   console.log('✅ Connected to SQLite database (sql.js)');
   initializeDatabase();
   scheduleSave();
+  startAutoBackupScheduler();
 
   return db;
 }).catch((err) => {

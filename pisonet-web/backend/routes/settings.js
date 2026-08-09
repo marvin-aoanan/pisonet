@@ -6,7 +6,19 @@ const db = require('../database');
 const { hashPassword, validateAdminPassword, requireAdminAuth } = require('../admin-auth');
 const { calculateFlatRateAmountFromMinutes, normalizeFlatRateSettings } = require('../pricing');
 
-const dbFilePath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'pisonet.db');
+function resolveDatabasePath(configPath) {
+  if (!configPath) {
+    return path.join(__dirname, '..', 'pisonet.db');
+  }
+
+  if (path.isAbsolute(configPath)) {
+    return configPath;
+  }
+
+  return path.resolve(__dirname, '..', configPath);
+}
+
+const dbFilePath = resolveDatabasePath(process.env.DATABASE_PATH);
 const coinsOutDir = path.join(__dirname, '..', 'backups', 'coins-out');
 
 function dbAllAsync(sql, params = []) {
