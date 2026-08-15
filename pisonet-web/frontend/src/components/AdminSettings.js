@@ -18,6 +18,9 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
   useMediaQuery,
   useTheme
 } from '@mui/material';
@@ -118,7 +121,8 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
           `${API_URL}/units/${unit.id}`,
           {
             mac_address: unit.mac_address || '',
-            ip_address: unit.ip_address || ''
+            ip_address: unit.ip_address || '',
+            status_mode: unit.status_mode || 'active'
           },
           { headers: { 'x-admin-password': adminPassword } }
         ))
@@ -270,9 +274,25 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                     onChange={(e) => handleChange('flat_rate_tier3_price', e.target.value)}
                     inputProps={{ min: 1, step: '0.01' }}
                   />
+                  <TextField
+                    fullWidth
+                    label="Tier 4 Minutes"
+                    type="number"
+                    value={settings.flat_rate_tier4_minutes || '75'}
+                    onChange={(e) => handleChange('flat_rate_tier4_minutes', e.target.value)}
+                    inputProps={{ min: 1 }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Tier 4 Price (₱)"
+                    type="number"
+                    value={settings.flat_rate_tier4_price || '20'}
+                    onChange={(e) => handleChange('flat_rate_tier4_price', e.target.value)}
+                    inputProps={{ min: 1, step: '0.01' }}
+                  />
                 </Box>
                 <Alert severity="info">
-                  Current target: 15 mins = ₱5, 30 mins = ₱10, 60 mins = ₱15.
+                  Current target: 15 mins = ₱5, 30 mins = ₱10, 60 mins = ₱15, 75 mins = ₱20.
                 </Alert>
                 <Divider />
                 <TextField
@@ -422,9 +442,10 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
               <Table stickyHeader size="small" aria-label="unit network configuration table">
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ width: '20%', fontWeight: 700 }}>Unit</TableCell>
-                    <TableCell sx={{ width: '40%', fontWeight: 700 }}>Static IP</TableCell>
-                    <TableCell sx={{ width: '40%', fontWeight: 700 }}>MAC Address</TableCell>
+                    <TableCell sx={{ width: '18%', fontWeight: 700 }}>Unit</TableCell>
+                    <TableCell sx={{ width: '28%', fontWeight: 700 }}>Static IP</TableCell>
+                    <TableCell sx={{ width: '28%', fontWeight: 700 }}>MAC Address</TableCell>
+                    <TableCell sx={{ width: '26%', fontWeight: 700 }}>Status Mode</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -455,6 +476,16 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                           onChange={(e) => handleUnitChange(unit.id, 'mac_address', e.target.value)}
                           size="small"
                         />
+                      </TableCell>
+                      <TableCell>
+                        <RadioGroup
+                          row
+                          value={String(unit.status_mode || 'active').toLowerCase()}
+                          onChange={(e) => handleUnitChange(unit.id, 'status_mode', e.target.value)}
+                        >
+                          <FormControlLabel value="active" control={<Radio size="small" />} label="Active" />
+                          <FormControlLabel value="maintenance" control={<Radio size="small" />} label="Maintenance" />
+                        </RadioGroup>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -56,7 +56,7 @@ Platform differences (Android):
 Enter:
 
 - Unit ID
-- Server Host/IP (example: 192.168.254.201)
+- Server Host/IP (example: 192.168.254.200)
 - WebSocket Port (default: 5001)
 - API Port (default: 5001)
 - Grace Seconds (default: 60)

@@ -52,7 +52,7 @@ function PcTooltipContent() {
       ))}
       <Box sx={{ borderTop: 1, borderColor: 'divider', px: 1.5, py: 0.75 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          Total Revenue: ₱{totals.revenue.toFixed(2)}
+          Total Sales: ₱{totals.revenue.toFixed(2)}
         </Typography>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
           Total Hours: {formatHoursWithPadding(totals.hours)}
@@ -170,8 +170,8 @@ function AdminReports() {
         const response = await axios.get(`${API_URL}/transactions/revenue/by-unit`);
         setRows(response.data || []);
       } catch (err) {
-        console.error('Error fetching revenue by unit:', err);
-        setError('Failed to load revenue data.');
+        console.error('Error fetching sales by unit:', err);
+        setError('Failed to load sales data.');
       } finally {
         setLoading(false);
       }
@@ -380,7 +380,7 @@ function AdminReports() {
           const point = typeof index === 'number' ? dailyByUnitChartData[index] : null;
           const revenue = Number(value || 0).toFixed(2);
           const hours = formatHoursWithPadding(point?.[`${pc} Hours`] || 0);
-          return `${pc} - Revenue: ₱${revenue} | Hours: ${hours}`;
+          return `${pc} - Sales: ₱${revenue} | Hours: ${hours}`;
         },
       });
       series.push({
@@ -405,7 +405,7 @@ function AdminReports() {
       <Paper sx={{ p: 3 }} elevation={2}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="subtitle1">
-            PC Revenue and Hours Over Time ({activeWindowLabel})
+            PC Sales and Hours Over Time ({activeWindowLabel})
           </Typography>
           <ToggleButtonGroup
             size="small"
@@ -426,7 +426,7 @@ function AdminReports() {
 
         {dailyByUnitChartData.length === 0 && (
           <Alert severity="info">
-            Daily revenue by unit data is not available yet. Please ensure the `/transactions/revenue/daily-by-unit` endpoint is available on the backend.
+            Daily sales by unit data is not available yet. Please ensure the `/transactions/revenue/daily-by-unit` endpoint is available on the backend.
           </Alert>
         )}
 
@@ -442,7 +442,7 @@ function AdminReports() {
               },
             }}
             yAxis={[
-              { id: 'revenueAxis', label: 'Revenue (₱)' },
+              { id: 'revenueAxis', label: 'Sales (₱)' },
               { id: 'hoursAxis', label: 'Hours', position: 'right' },
             ]}
             series={dailyByUnitSeries}
@@ -476,14 +476,14 @@ function AdminReports() {
       <Paper sx={{ p: 3 }} elevation={2}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           <Typography variant="subtitle1">
-            PC vs Revenue and Hours
+            PC vs Sales and Hours
           </Typography>
           <Box sx={{ textAlign: 'right' }}>
             <Typography variant="body2" color="text.secondary">
               Total Hours: {totalChartHours.toFixed(2)} h
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Total Revenue (admin adjustments normalized): ₱{totalChartRevenue.toFixed(2)}
+              Total Sales (admin adjustments normalized): ₱{totalChartRevenue.toFixed(2)}
             </Typography>
           </Box>
         </Box>
@@ -499,13 +499,13 @@ function AdminReports() {
               },
             }}
             yAxis={[
-              { id: 'revenueAxis', label: 'Revenue (₱)' },
+              { id: 'revenueAxis', label: 'Sales (₱)' },
               { id: 'hoursAxis', label: 'Hours', position: 'right' },
             ]}
             series={[
               {
                 dataKey: 'revenue',
-                label: 'Revenue (₱)',
+                label: 'Sales (₱)',
                 yAxisId: 'revenueAxis',
                 valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
               },

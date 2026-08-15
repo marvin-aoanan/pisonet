@@ -286,23 +286,17 @@ router.post('/:id/add-time', (req, res) => {
 });
 
 // POST adjust timer by minutes (admin control, supports negative values)
-router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
-  const unitId = req.params.id;
-  const minutes = Number(req.body?.minutes);
-
-  if (!Number.isFinite(minutes) || minutes === 0) {
-    return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
-  }
-
+function adjustUnitByMinutes(unitId, minutes, done) {
+  const unitIdNumber = parseInt(unitId, 10);
   const deltaSeconds = Math.round(minutes * 60);
 
-  db.get('SELECT * FROM units WHERE id = ?', [unitId], (err, unit) => {
+  db.get('SELECT * FROM units WHERE id = ?', [unitIdNumber], (err, unit) => {
     if (err) {
-      return res.status(500).json({ error: err.message });
+      return done(err);
     }
 
     if (!unit) {
-      return res.status(404).json({ error: 'Unit not found' });
+      return done({ status: 404, message: 'Unit not found' });
     }
 
     const newSeconds = Math.max(0, (unit.remaining_seconds || 0) + deltaSeconds);
@@ -313,16 +307,16 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
 
     db.run(
       'UPDATE units SET remaining_seconds = ?, total_revenue = ?, status = ?, timer_paused = ?, last_status_update = ? WHERE id = ?',
-      [newSeconds, newRevenue, newStatus, newTimerPaused, new Date().toISOString(), unitId],
+      [newSeconds, newRevenue, newStatus, newTimerPaused, new Date().toISOString(), unitIdNumber],
       (updateErr) => {
         if (updateErr) {
-          return res.status(500).json({ error: updateErr.message });
+          return done(updateErr);
         }
 
         // Log admin time adjustment as a transaction (amount = signed minutes)
         db.run(
           'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
-          [unitId, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct'],
+          [unitIdNumber, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct'],
           (txErr) => {
             if (txErr) {
               console.error('Error recording admin adjustment transaction:', txErr);
@@ -334,7 +328,7 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
           global.broadcast({
             type: 'UNIT_UPDATE',
             unit: {
-              id: parseInt(unitId, 10),
+              id: unitIdNumber,
               remaining_seconds: newSeconds,
               timer_paused: newTimerPaused,
               total_revenue: newRevenue,
@@ -343,9 +337,8 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
           });
         }
 
-        return res.json({
-          message: 'Timer adjusted successfully',
-          unit_id: parseInt(unitId, 10),
+        return done(null, {
+          unit_id: unitIdNumber,
           delta_minutes: minutes,
           delta_seconds: deltaSeconds,
           new_remaining_seconds: newSeconds,
@@ -354,6 +347,79 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
       }
     );
   });
+}
+
+router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
+  const unitId = req.params.id;
+  const minutes = Number(req.body?.minutes);
+
+  if (!Number.isFinite(minutes) || minutes === 0) {
+    return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
+  }
+
+  adjustUnitByMinutes(unitId, minutes, (adjustErr, result) => {
+    if (adjustErr) {
+      if (adjustErr.status) {
+        return res.status(adjustErr.status).json({ error: adjustErr.message });
+      }
+      return res.status(500).json({ error: adjustErr.message });
+    }
+
+    return res.json({
+      message: 'Timer adjusted successfully',
+      ...result,
+    });
+  });
+});
+
+router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
+  const minutes = Number(req.body?.minutes);
+  const unitIdsRaw = Array.isArray(req.body?.unit_ids) ? req.body.unit_ids : [];
+
+  if (!Number.isFinite(minutes) || minutes === 0) {
+    return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
+  }
+
+  const unitIds = [...new Set(unitIdsRaw.map((id) => parseInt(id, 10)).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!unitIds.length) {
+    return res.status(400).json({ error: 'unit_ids must contain at least one valid unit id.' });
+  }
+
+  const results = [];
+  const failures = [];
+
+  const processNext = (index) => {
+    if (index >= unitIds.length) {
+      const successCount = results.length;
+      const failureCount = failures.length;
+      const hasFailure = failureCount > 0;
+
+      return res.status(hasFailure ? 207 : 200).json({
+        message: hasFailure ? 'Bulk timer adjustment completed with partial failures' : 'Bulk timer adjustment completed',
+        delta_minutes: minutes,
+        unit_count: unitIds.length,
+        success_count: successCount,
+        failure_count: failureCount,
+        results,
+        failures,
+      });
+    }
+
+    const unitId = unitIds[index];
+    adjustUnitByMinutes(unitId, minutes, (adjustErr, result) => {
+      if (adjustErr) {
+        failures.push({
+          unit_id: unitId,
+          error: adjustErr.message || 'Failed to adjust timer',
+        });
+      } else {
+        results.push(result);
+      }
+      processNext(index + 1);
+    });
+  };
+
+  processNext(0);
 });
 
 // POST pause a regular countdown timer without ending session/open-time (admin only)
@@ -1006,7 +1072,7 @@ router.delete('/:id/open-time', requireAdminAuth, (req, res) => {
 
 // PUT update unit details
 router.put('/:id', requireAdminAuth, (req, res) => {
-  const { name, mac_address, ip_address } = req.body;
+  const { name, mac_address, ip_address, status_mode } = req.body;
   const unitId = req.params.id;
 
   const updates = [];
@@ -1042,6 +1108,14 @@ router.put('/:id', requireAdminAuth, (req, res) => {
       updates.push('ip_address = ?');
       values.push(null);
     }
+  }
+  if (typeof status_mode !== 'undefined') {
+    const normalizedStatusMode = String(status_mode || '').trim().toLowerCase();
+    if (!['active', 'maintenance'].includes(normalizedStatusMode)) {
+      return res.status(400).json({ error: 'Invalid status mode. Must be active or maintenance.' });
+    }
+    updates.push('status_mode = ?');
+    values.push(normalizedStatusMode);
   }
 
   if (updates.length === 0) {

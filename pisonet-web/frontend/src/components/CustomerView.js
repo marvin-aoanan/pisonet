@@ -12,6 +12,9 @@ import {
 import { AccessTime as TimeIcon, Monitor as PcIcon } from '@mui/icons-material';
 
 function CustomerView({ units, onSelectUnit }) {
+  const isMaintenanceMode = (unit) => String(unit?.status_mode || 'active').toLowerCase() === 'maintenance';
+  const isLowTime = (unit) => Number(unit?.remaining_seconds || 0) > 0 && Number(unit?.remaining_seconds || 0) < 120;
+
   const formatTime = (seconds) => {
     if (seconds <= 0) return '00:00:00';
     const h = Math.floor(seconds / 3600);
@@ -44,6 +47,10 @@ function CustomerView({ units, onSelectUnit }) {
       }}
     >
       {units.map((unit) => (
+        (() => {
+          const maintenanceMode = isMaintenanceMode(unit);
+          const lowTime = isLowTime(unit);
+          return (
         <Card
           key={unit.id}
           elevation={unit.open_time === 1 || unit.remaining_seconds > 0 ? 6 : 1}
@@ -52,12 +59,40 @@ function CustomerView({ units, onSelectUnit }) {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            border: unit.open_time === 1 ? '2px solid #FF9800' : unit.remaining_seconds > 0 ? '2px solid #00E676' : '1px solid #424242',
+            border: maintenanceMode
+              ? '2px solid #ef5350'
+              : unit.open_time === 1
+                ? '2px solid #FF9800'
+                : lowTime
+                  ? '2px solid #ff3d00'
+                : unit.remaining_seconds > 0
+                  ? '2px solid #00E676'
+                  : '1px solid #424242',
             position: 'relative',
             overflow: 'hidden',
-            alignSelf: 'stretch'
+            alignSelf: 'stretch',
+            opacity: maintenanceMode ? 0.72 : 1,
+            animation: lowTime && !maintenanceMode ? 'lowTimeBorderPulse 1.2s linear infinite alternate' : 'none',
+            '@keyframes lowTimeBorderPulse': {
+              '0%': {
+                borderColor: '#d50000',
+                boxShadow: '0 0 0 1px rgba(213, 0, 0, 0.5)',
+              },
+              '100%': {
+                borderColor: '#ff6d00',
+                boxShadow: '0 0 0 1px rgba(255, 109, 0, 0.5)',
+              },
+            },
           }}
         >
+          {maintenanceMode ? (
+            <Chip
+              label="MAINTENANCE"
+              color="error"
+              size="small"
+              sx={{ position: 'absolute', top: 6, left: 6 }}
+            />
+          ) : null}
           {unit.remaining_seconds > 0 ? (
             <Chip
               label="ACTIVE"
@@ -77,7 +112,7 @@ function CustomerView({ units, onSelectUnit }) {
             {unit.open_time === 1 ? (
               <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
                 <Box sx={{ my: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, minHeight: 78, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <Typography variant="h5" component="div" sx={{ fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 0.5, color: 'warning.main' }}>
+                  <Typography variant="h5" component="div" sx={{ fontFamily: 'monospace', fontSize: '1.8rem', fontWeight: 600, letterSpacing: 0.5, color: '#f44336' }}>
                     {formatTime(unit.open_time_elapsed || 0)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
@@ -96,7 +131,17 @@ function CustomerView({ units, onSelectUnit }) {
             ) : (
               <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
                 <Box sx={{ my: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, minHeight: 78, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <Typography variant="h5" component="div" sx={{ fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 0.5 }}>
+                  <Typography
+                    variant="h5"
+                    component="div"
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '1.8rem',
+                      fontWeight: 600,
+                      letterSpacing: 0.5,
+                      color: unit.remaining_seconds <= 0 ? '#a4a4a4' : '#f44336',
+                    }}
+                  >
                     {formatTime(unit.remaining_seconds)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
@@ -126,7 +171,7 @@ function CustomerView({ units, onSelectUnit }) {
                 size="small"
                 startIcon={<TimeIcon />}
                 onClick={() => onSelectUnit(unit.id)}
-                disabled={unit.status === 'maintenance'}
+                disabled={maintenanceMode || unit.status === 'maintenance'}
                 sx={{ minHeight: 32 }}
               >
                 Insert Coin
@@ -136,6 +181,8 @@ function CustomerView({ units, onSelectUnit }) {
             <CardActions sx={{ p: 0.5, pt: 0.25, pb: 0.25, minHeight: 41 }} />
           )}
         </Card>
+          );
+        })()
       ))}
     </Box>
   );

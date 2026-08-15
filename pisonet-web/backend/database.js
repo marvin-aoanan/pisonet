@@ -376,6 +376,18 @@ function initializeDatabase() {
       }
     });
 
+    db.run("ALTER TABLE units ADD COLUMN status_mode TEXT DEFAULT 'active'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.status_mode column:', err);
+      }
+    });
+
+    db.run("UPDATE units SET status_mode = 'active' WHERE status_mode IS NULL OR TRIM(status_mode) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling units.status_mode column:', err);
+      }
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -438,6 +450,8 @@ function initializeDatabase() {
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier2_price', '10')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_minutes', '60')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_price', '15')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier4_minutes', '75')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier4_price', '20')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);

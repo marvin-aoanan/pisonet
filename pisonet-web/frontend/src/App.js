@@ -421,19 +421,42 @@ function App() {
   };
 
   // Handle timer adjustment (admin feature)
-  const handleAddTime = async (unitId, minutes) => {
+  const handleAddTime = async (unitIdOrIds, minutes) => {
+    const unitIds = Array.isArray(unitIdOrIds) ? unitIdOrIds : [unitIdOrIds];
+
+    if (!unitIds.length) {
+      return;
+    }
+
     try {
-      await axios.post(
-        `${API_URL}/units/${unitId}/adjust-time`,
-        { minutes },
-        {
-          headers: {
-            'x-admin-password': adminPassword
+      if (unitIds.length === 1) {
+        await axios.post(
+          `${API_URL}/units/${unitIds[0]}/adjust-time`,
+          { minutes },
+          {
+            headers: {
+              'x-admin-password': adminPassword
+            }
           }
-        }
-      );
+        );
+      } else {
+        await axios.post(
+          `${API_URL}/units/adjust-time/bulk`,
+          { unit_ids: unitIds, minutes },
+          {
+            headers: {
+              'x-admin-password': adminPassword
+            }
+          }
+        );
+      }
+
       const direction = minutes > 0 ? 'Added' : 'Removed';
-      setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitId}`);
+      if (unitIds.length === 1) {
+        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitIds[0]}`);
+      } else {
+        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} ${unitIds.length} PCs`);
+      }
       fetchUnits();
     } catch (error) {
       console.error('Error adjusting time:', error);
@@ -444,7 +467,7 @@ function App() {
         setAdminAuthOpen(true);
         throw error;
       }
-      setStatusMessage('❌ Error adjusting time');
+      setStatusMessage(error?.response?.data?.error || '❌ Error adjusting time');
       throw error;
     }
   };

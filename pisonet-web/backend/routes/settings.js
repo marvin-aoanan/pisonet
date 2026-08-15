@@ -176,7 +176,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PisoNet Final Report - ${escapeHtml(reportFile)}</title>
+  <title>MJBY iCafe Sales Report - ${escapeHtml(reportFile)}</title>
   <style>
     :root {
       --bg: #f4f6f8;
@@ -300,7 +300,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
 <body>
   <article class="sheet">
     <header class="hero">
-      <h1>PisoNet Final Coins Out Report</h1>
+      <h1>MJBY iCafe Final Coins Out Report</h1>
       <p>${escapeHtml(reportFile)}</p>
     </header>
 
@@ -312,7 +312,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
 
       <div class="cards">
         <div class="card">
-          <div class="label">Total Revenue</div>
+          <div class="label">Total Sales</div>
           <div class="value">PHP ${formatNumber(totals.estimated_total_revenue || 0, 2)}</div>
         </div>
         <div class="card">
@@ -334,7 +334,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
       </div>
 
       <div class="section">
-        <h2>Revenue Breakdown by Transaction Type</h2>
+        <h2>Sales Breakdown by Transaction Type</h2>
         ${rows ? `
           <table>
             <thead>
@@ -443,18 +443,18 @@ function buildFinalReportPdf(report, reportFile) {
     : [];
 
   const lines = [
-    'PisoNet Final Coins Out Report',
+    'MJBY iCafe Final Coins Out Report',
     `File: ${reportFile}`,
     `Generated: ${report?.generated_at || 'N/A'}`,
     `Coverage: ${report?.period?.start || 'N/A'} to ${report?.period?.end || 'N/A'}`,
     '',
-    `Total Revenue: PHP ${formatNumber(toSafeNumber(totals.estimated_total_revenue || 0, 2), 2)}`,
+    `Total Sales: PHP ${formatNumber(toSafeNumber(totals.estimated_total_revenue || 0, 2), 2)}`,
     `Transaction Count: ${Number(report?.transaction_count || 0).toLocaleString('en-US')}`,
     `Estimated Usage Hours: ${formatNumber(toSafeNumber(electricity.estimated_usage_hours || 0, 2), 2)} h`,
     `Estimated kWh: ${formatNumber(toSafeNumber(electricity.estimated_kwh || 0, 2), 2)} kWh`,
     `Estimated Electricity Cost: PHP ${formatNumber(toSafeNumber(electricity.estimated_cost || 0, 2), 2)}`,
     '',
-    'Revenue Breakdown by Transaction Type',
+    'Sales Breakdown by Transaction Type',
     '------------------------------------',
   ];
 
@@ -549,7 +549,7 @@ router.post('/admin/coins-out', async (req, res) => {
 
     const [transactions, settingsRows] = await Promise.all([
       dbAllAsync('SELECT unit_id, amount, denomination, timestamp, transaction_type FROM transactions ORDER BY timestamp ASC'),
-      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price')")
+      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price', 'flat_rate_tier4_minutes', 'flat_rate_tier4_price')")
     ]);
 
     const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));

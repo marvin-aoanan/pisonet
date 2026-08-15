@@ -95,10 +95,13 @@ function AdminTransactions({ adminPassword }) {
     const tier2Price = Math.max(0, Number(flatRateSettings.flat_rate_tier2_price || 10));
     const tier3Minutes = Math.max(tier2Minutes + 1, Number(flatRateSettings.flat_rate_tier3_minutes || 60));
     const tier3Price = Math.max(0, Number(flatRateSettings.flat_rate_tier3_price || 15));
+    const tier4Minutes = Math.max(tier3Minutes + 1, Number(flatRateSettings.flat_rate_tier4_minutes || 75));
+    const tier4Price = Math.max(0, Number(flatRateSettings.flat_rate_tier4_price || 20));
     const tiers = [
       { minutes: tier1Minutes, price: tier1Price },
       { minutes: tier2Minutes, price: tier2Price },
       { minutes: tier3Minutes, price: tier3Price },
+      { minutes: tier4Minutes, price: tier4Price },
     ];
 
     const sign = amount < 0 ? -1 : 1;

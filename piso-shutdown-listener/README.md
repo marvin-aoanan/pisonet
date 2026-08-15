@@ -38,20 +38,20 @@ python -m pip install websocket-client
 On a **diskless client** with a LAN IP in `192.168.254.151–160`, `--unit` is **auto-detected** from the IP — no need to pass it:
 
 ```bash
-python timer-overlay.py --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44
+python timer-overlay.py --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 If you do not want the password in the command, use the env var:
 
 ```powershell
 $env:PISONET_UNLOCK_PASSWORD = "44"
-python timer-overlay.py --server=192.168.254.201 --wsport=5001 --grace=60
+python timer-overlay.py --server=192.168.254.200 --wsport=5001 --grace=60
 ```
 
 To override the unit number manually (non-diskless PCs or IPs outside the range):
 
 ```bash
-python timer-overlay.py --unit=3 --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44
+python timer-overlay.py --unit=3 --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 ## 4. Pre-Compiled EXE (Recommended for Client PCs)
@@ -69,13 +69,13 @@ Output file:
 Run on client PC (unit auto-detected from IP on diskless clients):
 
 ```bat
-.\timer-overlay.exe --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44
+.\timer-overlay.exe --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 To override unit number manually:
 
 ```bat
-.\timer-overlay.exe --unit=3 --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44
+.\timer-overlay.exe --unit=3 --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 
 Notes:
@@ -85,7 +85,7 @@ Notes:
 
 ## 5. Command Options
 - `--unit` (optional): PC unit number (`1` to `10`). **Auto-detected** from the client IP when the IP is in the range `192.168.254.151–160` (151→1, 152→2, …, 160→10). Pass explicitly only for PCs outside that range.
-- `--server` (required): management server host/IP (no protocol), e.g. `192.168.254.201`
+- `--server` (required): management server host/IP (no protocol), e.g. `192.168.254.200`
 - `--wsport` (optional): WebSocket port, default `5001`
 - `--grace` (optional): shutdown warning seconds after timer reaches zero, default `60`
 - `--apiport` (optional): API port for initial state fetch (defaults to `--wsport`)
@@ -125,7 +125,7 @@ To run `timer-overlay.exe` automatically when Windows starts, use one of these m
 ```batch
 @echo off
 cd /d "D:\pisonet\piso-shutdown-listener\dist"
-start .\timer-overlay.exe --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44
+start .\timer-overlay.exe --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44
 ```
 3. The batch file will run automatically when Windows starts
 
@@ -138,14 +138,14 @@ start .\timer-overlay.exe --server=192.168.254.201 --wsport=5001 --grace=60 --un
 4. Set trigger to "At startup"
 5. Set action to "Start a program"
 6. Program: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe`
-7. Add arguments: `--server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44`
+7. Add arguments: `--server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44`
 
 > Add `--unit=N` to the arguments only if this PC's IP is outside `192.168.254.151–160`.
 
 ### Option 3: Registry (For Current User)
 Add to registry at `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`:
 - Name: `TimerOverlay`
-- Value: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe --server=192.168.254.201 --wsport=5001 --grace=60 --unlock-password=44`
+- Value: `D:\pisonet\piso-shutdown-listener\dist\timer-overlay.exe --server=192.168.254.200 --wsport=5001 --grace=60 --unlock-password=44`
 
 > Add `--unit=N` to the value only if this PC's IP is outside `192.168.254.151–160`.
 
@@ -240,7 +240,7 @@ The watchdog reads settings from environment variables (with defaults).
 
 Supported variables:
 1. `TIMER_UNIT` (optional — **auto-detected from IP** `192.168.254.151–160`; set only to override)
-2. `TIMER_SERVER` (default: `192.168.254.201`)
+2. `TIMER_SERVER` (default: `192.168.254.200`)
 3. `TIMER_UNLOCK_PASSWORD` (fallback: `PISONET_UNLOCK_PASSWORD`, then default `44`)
 4. `TIMER_WSPORT` (default: `5001`)
 5. `TIMER_GRACE` (default: `60`)
@@ -252,7 +252,7 @@ Example (unit override only needed for non-diskless PCs):
 
 ```batch
 rem set "TIMER_UNIT=3"   <- only if IP is outside 192.168.254.151-160
-set "TIMER_SERVER=192.168.254.201"
+set "TIMER_SERVER=192.168.254.200"
 set "TIMER_UNLOCK_PASSWORD=1234"
 set "TIMER_BG_IMAGE=D:\bg-timer-locked.png"
 ```
