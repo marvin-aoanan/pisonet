@@ -1,0 +1,47 @@
+name: PisoNetTimerOverlay
+defaults:
+  deploymentTarget:
+    iOS: 16.0
+
+options:
+  minimumXcodeGenVersion: 2.38.0
+
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.pisonet.timeroverlay.ios
+    SWIFT_VERSION: 5.0
+    TARGETED_DEVICE_FAMILY: "1,2"
+
+targets:
+  PisoNetTimerOverlay:
+    type: application
+    platform: iOS
+    sources:
+      - path: PisoNetTimerOverlay
+    dependencies:
+      - target: PisoNetTimerWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pisonet.timeroverlay.ios
+        CODE_SIGN_ENTITLEMENTS: PisoNetTimerOverlay/PisoNetTimerOverlay.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIStatusBarHidden: false
+        INFOPLIST_KEY_UIRequiresFullScreen: false
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: PisoNet overlay connects to your local server.
+        INFOPLIST_KEY_NSBonjourServices:
+          - _http._tcp
+          - _ws._tcp
+
+  PisoNetTimerWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PisoNetTimerWidget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pisonet.timeroverlay.ios.widget
+        INFOPLIST_FILE: PisoNetTimerWidget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PisoNetTimerWidget/PisoNetTimerWidget.entitlements

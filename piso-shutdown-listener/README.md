@@ -8,6 +8,12 @@ A native Android version is available in `android-native-overlay/`.
 
 See `android-native-overlay/README.md` for build and setup instructions.
 
+## Native iOS App Version
+
+A native iPhone/iPad version is available in `ios-native-overlay/`.
+
+See `ios-native-overlay/README.md` for build and setup instructions.
+
 ## 1. Requirements
 - Python 3.9+ installed
 - Network access to your timer source server (WebSocket/API)
