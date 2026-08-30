@@ -421,8 +421,9 @@ function App() {
   };
 
   // Handle timer adjustment (admin feature)
-  const handleAddTime = async (unitIdOrIds, minutes) => {
+  const handleAddTime = async (unitIdOrIds, minutes, description = '') => {
     const unitIds = Array.isArray(unitIdOrIds) ? unitIdOrIds : [unitIdOrIds];
+    const normalizedDescription = String(description || '').trim();
 
     if (!unitIds.length) {
       return;
@@ -432,7 +433,7 @@ function App() {
       if (unitIds.length === 1) {
         await axios.post(
           `${API_URL}/units/${unitIds[0]}/adjust-time`,
-          { minutes },
+          { minutes, description: normalizedDescription || null },
           {
             headers: {
               'x-admin-password': adminPassword
@@ -442,7 +443,7 @@ function App() {
       } else {
         await axios.post(
           `${API_URL}/units/adjust-time/bulk`,
-          { unit_ids: unitIds, minutes },
+          { unit_ids: unitIds, minutes, description: normalizedDescription || null },
           {
             headers: {
               'x-admin-password': adminPassword

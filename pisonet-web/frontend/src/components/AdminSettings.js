@@ -42,6 +42,21 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [printServicePrices, setPrintServicePrices] = useState({});
+  const [savingPrintServices, setSavingPrintServices] = useState(false);
+
+  const printServiceLabels = {
+    document_short_bw: 'Document Short (A4/Letter) - B&W',
+    document_short_color: 'Document Short (A4/Letter) - Color',
+    document_long_bw: 'Document Long (Legal) - B&W',
+    document_long_color: 'Document Long (Legal) - Color',
+    photo_short_bw: 'Photo Short (A4/Letter) - B&W',
+    photo_short_color: 'Photo Short (A4/Letter) - Color',
+    photo_long_bw: 'Photo Long (Legal) - B&W',
+    photo_long_color: 'Photo Long (Legal) - Color',
+    photo_short_special: 'Photo Short (A4/Letter) - Special Paper',
+    photo_long_special: 'Photo Long (Legal) - Special Paper',
+  };
 
   const saveButtonSx = {
     minWidth: 210,
@@ -60,14 +75,18 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     }
 
     try {
-      const [settingsResponse, unitsResponse] = await Promise.all([
+      const [settingsResponse, unitsResponse, pricesResponse] = await Promise.all([
         axios.get(`${API_URL}/settings`, {
           headers: { 'x-admin-password': adminPassword }
         }),
-        axios.get(`${API_URL}/units`)
+        axios.get(`${API_URL}/units`),
+        axios.get(`${API_URL}/settings/admin/print-services`, {
+          headers: { 'x-admin-password': adminPassword }
+        })
       ]);
       setSettings(settingsResponse.data);
       setUnits(unitsResponse.data || []);
+      setPrintServicePrices(pricesResponse.data || {});
     } catch (err) {
       console.error('Error fetching settings:', err);
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -177,6 +196,32 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     }
   };
 
+  const handlePrintServicePriceChange = (serviceId, newPrice) => {
+    const price = Math.max(0, parseFloat(newPrice) || 0);
+    setPrintServicePrices(prev => ({
+      ...prev,
+      [serviceId]: price
+    }));
+  };
+
+  const handleSavePrintServicePrices = async () => {
+    setSavingPrintServices(true);
+    try {
+      await axios.put(
+        `${API_URL}/settings/admin/print-services`,
+        printServicePrices,
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setMessage({ type: 'success', text: 'Print service prices updated successfully!' });
+    } catch (err) {
+      const errorText = err?.response?.data?.error || 'Failed to update print service prices';
+      console.error('Error updating print service prices:', err);
+      setMessage({ type: 'error', text: errorText });
+    } finally {
+      setSavingPrintServices(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -211,6 +256,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
           <Tab label="Pricing & Time Settings" />
           <Tab label="Admin Password" />
           <Tab label="Unit Network Config" />
+          <Tab label="Print Services Pricing" />
         </Tabs>
 
         {activeTab === 0 && (
@@ -502,6 +548,47 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                 sx={saveButtonSx}
               >
                 {savingUnits ? 'Saving...' : 'Save'}
+              </Button>
+            </Box>
+          </Box>
+        )}
+
+        {activeTab === 3 && (
+          <Box sx={{ p: 3 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Configure pricing for print services. Prices are in Philippine Pesos (₱) per page.
+            </Typography>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 3 }}>
+              {Object.entries(printServiceLabels).map(([serviceId, label]) => (
+                <Box key={serviceId} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                      {label}
+                    </Typography>
+                  </Box>
+                  <TextField
+                    type="number"
+                    inputProps={{ step: '0.50', min: '0' }}
+                    value={printServicePrices[serviceId] || ''}
+                    onChange={(e) => handlePrintServicePriceChange(serviceId, e.target.value)}
+                    sx={{ width: 120 }}
+                    size="small"
+                    label="Price (₱)"
+                  />
+                </Box>
+              ))}
+            </Box>
+
+            <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start', mt: 4, gap: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={handleSavePrintServicePrices}
+                disabled={savingPrintServices}
+                sx={saveButtonSx}
+              >
+                {savingPrintServices ? 'Saving...' : 'Save Prices'}
               </Button>
             </Box>
           </Box>

@@ -191,6 +191,18 @@ function AdminTransactions({ adminPassword }) {
         return <Chip label={entry.label} color={entry.color} size="small" />;
       }
     },
+    {
+      field: 'description',
+      headerName: 'Description',
+      minWidth: 220,
+      flex: 1,
+      sortable: false,
+      renderCell: (params) => (
+        <Typography variant="body2" color="text.secondary" title={params.value || ''} noWrap>
+          {params.value || '-'}
+        </Typography>
+      )
+    },
     { 
       field: 'amount', 
       headerName: 'Amount', 

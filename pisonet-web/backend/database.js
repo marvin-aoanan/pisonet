@@ -184,6 +184,46 @@ function getLastInsertId() {
   return row && row.id ? row.id : 0;
 }
 
+function migrateTransactionsUnitIdToNullable() {
+  const columns = db.all('PRAGMA table_info(transactions)');
+  const unitIdColumn = columns.find((column) => column.name === 'unit_id');
+
+  if (!unitIdColumn || Number(unitIdColumn.notnull) === 0) {
+    return;
+  }
+
+  const existingRows = db.all(
+    'SELECT id, unit_id, amount, denomination, timestamp, transaction_type, session_id FROM transactions ORDER BY id ASC'
+  );
+
+  db.run('BEGIN TRANSACTION');
+  db.run('ALTER TABLE transactions RENAME TO transactions_old');
+  db.run(`
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id INTEGER,
+      amount REAL NOT NULL,
+      denomination INTEGER,
+      timestamp TEXT NOT NULL,
+      transaction_type TEXT DEFAULT 'coin',
+      session_id INTEGER,
+      description TEXT,
+      FOREIGN KEY (unit_id) REFERENCES units(id),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )
+  `);
+
+  existingRows.forEach((row) => {
+    db.run(
+      'INSERT INTO transactions (id, unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [row.id, row.unit_id, row.amount, row.denomination, row.timestamp, row.transaction_type, row.session_id, null]
+    );
+  });
+
+  db.run('DROP TABLE transactions_old');
+  db.run('COMMIT');
+}
+
 const db = {
   ready: null,
   snapshotToFile(targetPath) {
@@ -206,6 +246,10 @@ const db = {
 
     const fileBuffer = fs.readFileSync(sourcePath);
     sqlDb = new SqlJsModule.Database(new Uint8Array(fileBuffer));
+
+    // Restored backups may come from older schema versions.
+    // Re-apply idempotent migrations so new columns (e.g. transactions.description) exist.
+    initializeDatabase();
 
     scheduleSave();
   },
@@ -404,16 +448,25 @@ function initializeDatabase() {
     db.run(`
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        unit_id INTEGER NOT NULL,
+        unit_id INTEGER,
         amount REAL NOT NULL,
         denomination INTEGER,
         timestamp TEXT NOT NULL,
         transaction_type TEXT DEFAULT 'coin',
         session_id INTEGER,
+        description TEXT,
         FOREIGN KEY (unit_id) REFERENCES units(id),
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       )
     `);
+
+    db.run('ALTER TABLE transactions ADD COLUMN description TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.description column:', err);
+      }
+    });
+
+    migrateTransactionsUnitIdToNullable();
 
     db.run(`
       CREATE TABLE IF NOT EXISTS hardware_log (

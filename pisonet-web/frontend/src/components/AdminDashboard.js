@@ -121,6 +121,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
   const [timeDialogType, setTimeDialogType] = useState(null);
   const [timeDialogUnitIds, setTimeDialogUnitIds] = useState([]);
   const [timeDialogAmount, setTimeDialogAmount] = useState('');
+  const [timeDialogDescription, setTimeDialogDescription] = useState('');
   const [sessionRevenueByUnit, setSessionRevenueByUnit] = useState({});
   const [selectedUnitIds, setSelectedUnitIds] = useState([]);
 
@@ -165,6 +166,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
     setTimeDialogUnitIds(targetUnitIds);
     setTimeDialogType(type);
     setTimeDialogAmount('');
+    setTimeDialogDescription('');
     setTimeDialogOpen(true);
   };
 
@@ -174,6 +176,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
     setTimeDialogUnitIds([]);
     setTimeDialogType(null);
     setTimeDialogAmount('');
+    setTimeDialogDescription('');
   };
 
   const handleTimeDialogConfirm = async () => {
@@ -189,7 +192,7 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
     setLoading(timeDialogUnitIds.length > 1 ? 'bulk-time' : timeDialogUnitIds[0]);
     try {
       const finalAmount = timeDialogType === 'deduct' ? -minutes : minutes;
-      await onAddTime(timeDialogUnitIds, finalAmount);
+      await onAddTime(timeDialogUnitIds, finalAmount, timeDialogDescription);
     } finally {
       setLoading(null);
     }
@@ -1167,6 +1170,14 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
             inputProps={{ min: '1', step: '1' }}
             placeholder="Enter number of minutes"
           />
+          <TextField
+            fullWidth
+            label="Description (optional)"
+            value={timeDialogDescription}
+            onChange={(e) => setTimeDialogDescription(e.target.value)}
+            placeholder="Reason or note"
+            sx={{ mt: 2 }}
+          />
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Quick Select:
@@ -1206,6 +1217,13 @@ function AdminDashboard({ units, totalRevenue, onControl, onTestWake, onAddTime,
                 onClick={() => setTimeDialogAmount('120')}
               >
                 2hr
+              </Button>
+              <Button 
+                size="small" 
+                variant={timeDialogAmount === '180' ? 'contained' : 'outlined'}
+                onClick={() => setTimeDialogAmount('180')}
+              >
+                3hr
               </Button>
             </Box>
           </Box>

@@ -171,8 +171,9 @@ function AdminCoinsOut({ adminPassword }) {
 
     setReportActionLoading(true);
     try {
+      const cacheBust = Date.now();
       const response = await axios.get(
-        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/html`,
+        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/html?t=${cacheBust}`,
         {
           headers: { 'x-admin-password': adminPassword },
           responseType: 'blob'
@@ -200,8 +201,9 @@ function AdminCoinsOut({ adminPassword }) {
 
     setReportActionLoading(true);
     try {
+      const cacheBust = Date.now();
       const response = await axios.get(
-        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/pdf`,
+        `${API_URL}/settings/admin/final-reports/${encodeURIComponent(selectedReport)}/pdf?t=${cacheBust}`,
         {
           headers: { 'x-admin-password': adminPassword },
           responseType: 'blob'

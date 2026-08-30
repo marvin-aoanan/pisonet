@@ -26,7 +26,7 @@ function PcTooltipContent() {
   const totals = visibleItems.reduce(
     (acc, item) => {
       const text = String(item.formattedValue || '');
-      const revenueMatch = text.match(/Revenue:\s*₱([\d.,-]+)/i);
+      const revenueMatch = text.match(/(?:Revenue|Sales):\s*₱([\d.,-]+)/i);
       const hoursMatch = text.match(/Hours:\s*([\d.]+)h/i);
 
       const revenue = revenueMatch ? Number(revenueMatch[1].replace(/,/g, '')) : 0;

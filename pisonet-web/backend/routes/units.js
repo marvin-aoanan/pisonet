@@ -286,7 +286,7 @@ router.post('/:id/add-time', (req, res) => {
 });
 
 // POST adjust timer by minutes (admin control, supports negative values)
-function adjustUnitByMinutes(unitId, minutes, done) {
+function adjustUnitByMinutes(unitId, minutes, description, done) {
   const unitIdNumber = parseInt(unitId, 10);
   const deltaSeconds = Math.round(minutes * 60);
 
@@ -315,8 +315,8 @@ function adjustUnitByMinutes(unitId, minutes, done) {
 
         // Log admin time adjustment as a transaction (amount = signed minutes)
         db.run(
-          'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type) VALUES (?, ?, ?, ?, ?)',
-          [unitIdNumber, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct'],
+          'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, description) VALUES (?, ?, ?, ?, ?, ?)',
+          [unitIdNumber, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct', description || null],
           (txErr) => {
             if (txErr) {
               console.error('Error recording admin adjustment transaction:', txErr);
@@ -352,12 +352,13 @@ function adjustUnitByMinutes(unitId, minutes, done) {
 router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const minutes = Number(req.body?.minutes);
+  const description = String(req.body?.description || '').trim();
 
   if (!Number.isFinite(minutes) || minutes === 0) {
     return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
   }
 
-  adjustUnitByMinutes(unitId, minutes, (adjustErr, result) => {
+  adjustUnitByMinutes(unitId, minutes, description, (adjustErr, result) => {
     if (adjustErr) {
       if (adjustErr.status) {
         return res.status(adjustErr.status).json({ error: adjustErr.message });
@@ -374,6 +375,7 @@ router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
 
 router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
   const minutes = Number(req.body?.minutes);
+  const description = String(req.body?.description || '').trim();
   const unitIdsRaw = Array.isArray(req.body?.unit_ids) ? req.body.unit_ids : [];
 
   if (!Number.isFinite(minutes) || minutes === 0) {
@@ -406,7 +408,7 @@ router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
     }
 
     const unitId = unitIds[index];
-    adjustUnitByMinutes(unitId, minutes, (adjustErr, result) => {
+    adjustUnitByMinutes(unitId, minutes, description, (adjustErr, result) => {
       if (adjustErr) {
         failures.push({
           unit_id: unitId,
