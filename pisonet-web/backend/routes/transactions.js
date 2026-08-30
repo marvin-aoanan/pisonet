@@ -3,6 +3,48 @@ const router = express.Router();
 const db = require('../database');
 const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('../pricing');
 
+// Print service definitions
+const PRINT_SERVICES = {
+  print_document_short_bw: { label: 'Document Short (A4/Letter) - B&W', settingKey: 'document_short_bw', defaultPrice: 3 },
+  print_document_short_color: { label: 'Document Short (A4/Letter) - Color', settingKey: 'document_short_color', defaultPrice: 5 },
+  print_document_long_bw: { label: 'Document Long (Legal) - B&W', settingKey: 'document_long_bw', defaultPrice: 5 },
+  print_document_long_color: { label: 'Document Long (Legal) - Color', settingKey: 'document_long_color', defaultPrice: 7 },
+  print_photo_short_bw: { label: 'Photo Short (A4/Letter) - B&W', settingKey: 'photo_short_bw', defaultPrice: 5 },
+  print_photo_short_color: { label: 'Photo Short (A4/Letter) - Color', settingKey: 'photo_short_color', defaultPrice: 10 },
+  print_photo_long_bw: { label: 'Photo Long (Legal) - B&W', settingKey: 'photo_long_bw', defaultPrice: 10 },
+  print_photo_long_color: { label: 'Photo Long (Legal) - Color', settingKey: 'photo_long_color', defaultPrice: 15 },
+  print_photo_short_special: { label: 'Photo Short (A4/Letter) - Special Paper', settingKey: 'photo_short_special', defaultPrice: 20 },
+  print_photo_long_special: { label: 'Photo Long (Legal) - Special Paper', settingKey: 'photo_long_special', defaultPrice: 30 },
+};
+
+function loadPrintServicePrices(callback) {
+  db.get('SELECT value FROM settings WHERE key = ?', ['print_service_prices'], (err, row) => {
+    if (err) {
+      return callback(err);
+    }
+
+    let configuredPrices = {};
+    if (row && row.value) {
+      try {
+        configuredPrices = JSON.parse(row.value) || {};
+      } catch (parseError) {
+        configuredPrices = {};
+      }
+    }
+
+    const pricesByServiceType = {};
+    Object.entries(PRINT_SERVICES).forEach(([serviceType, metadata]) => {
+      const rawValue = configuredPrices[metadata.settingKey];
+      const numericValue = Number(rawValue);
+      const fallbackPrice = Number(metadata.defaultPrice || 0);
+      const resolvedPrice = Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : fallbackPrice;
+      pricesByServiceType[serviceType] = resolvedPrice;
+    });
+
+    return callback(null, pricesByServiceType);
+  });
+}
+
 function getElectricityUsageHours(row, pesoToSeconds) {
   const amount = Number(row?.amount || 0);
   const denomination = Number(row?.denomination || 0);
@@ -537,9 +579,10 @@ router.get('/report/comprehensive', (req, res) => {
 
     db.all(
       `
-        SELECT unit_id, amount, transaction_type
+        SELECT unit_id, amount, transaction_type, timestamp, denomination, description
         FROM transactions
         WHERE timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC
       `,
       [startDate, endDate],
       (err, rows) => {
@@ -559,6 +602,14 @@ router.get('/report/comprehensive', (req, res) => {
           total_revenue: Number(totalRevenue.toFixed(4)),
           active_units: unitSet.size,
           average_transaction: Number(averageTransaction.toFixed(4)),
+          transactions: txRows.map((row) => ({
+            unit_id: row.unit_id,
+            amount: Number(row.amount || 0),
+            denomination: row.denomination == null ? null : Number(row.denomination),
+            transaction_type: row.transaction_type,
+            timestamp: row.timestamp,
+            description: String(row.description || '').trim() || null,
+          })),
         });
       }
     );
@@ -568,14 +619,15 @@ router.get('/report/comprehensive', (req, res) => {
 // POST create transaction (for advanced recording)
 router.post('/', (req, res) => {
   const { unit_id, amount, denomination, transaction_type, session_id } = req.body;
+  const description = String(req.body?.description || '').trim();
 
   if (!unit_id || !amount || amount <= 0) {
     return res.status(400).json({ error: 'Invalid unit_id or amount' });
   }
 
   db.run(
-    'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id) VALUES (?, ?, ?, ?, ?, ?)',
-    [unit_id, amount, denomination || amount, new Date().toISOString(), transaction_type || 'manual', session_id || null],
+    'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [unit_id, amount, denomination || amount, new Date().toISOString(), transaction_type || 'manual', session_id || null, description || null],
     function(err) {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -588,6 +640,44 @@ router.post('/', (req, res) => {
       });
     }
   );
+});
+
+// POST record print service transaction
+router.post('/print-service', (req, res) => {
+  const { service_type, pages_count } = req.body;
+  const description = String(req.body?.description || '').trim();
+
+  if (!service_type || !PRINT_SERVICES[service_type]) {
+    return res.status(400).json({ error: 'Invalid print service type' });
+  }
+
+  const pagesCount = Math.max(1, parseInt(pages_count, 10) || 1);
+  loadPrintServicePrices((priceErr, pricesByServiceType) => {
+    if (priceErr) {
+      return res.status(500).json({ error: priceErr.message });
+    }
+
+    const pricePerPage = Number(pricesByServiceType?.[service_type] ?? 0);
+    const totalAmount = pricePerPage * pagesCount;
+
+    db.run(
+      'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [null, totalAmount, pagesCount, new Date().toISOString(), service_type, null, description || null],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({
+          message: 'Print service transaction recorded',
+          transaction_id: this.lastID,
+          service_type,
+          pages_count: pagesCount,
+          price_per_page: pricePerPage,
+          total_amount: totalAmount,
+        });
+      }
+    );
+  });
 });
 
 module.exports = router;

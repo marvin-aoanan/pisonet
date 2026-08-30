@@ -5,6 +5,8 @@ const FLAT_RATE_SETTING_KEYS = [
   'flat_rate_tier2_price',
   'flat_rate_tier3_minutes',
   'flat_rate_tier3_price',
+  'flat_rate_tier4_minutes',
+  'flat_rate_tier4_price',
 ];
 
 const DEFAULT_FLAT_RATE_SETTINGS = {
@@ -14,6 +16,8 @@ const DEFAULT_FLAT_RATE_SETTINGS = {
   flat_rate_tier2_price: 10,
   flat_rate_tier3_minutes: 60,
   flat_rate_tier3_price: 15,
+  flat_rate_tier4_minutes: 75,
+  flat_rate_tier4_price: 20,
 };
 
 function parsePositiveNumber(rawValue, fallbackValue) {
@@ -36,6 +40,10 @@ function normalizeFlatRateSettings(rawSettings = {}) {
   const tier3Minutes = Math.max(tier2Minutes + 1, tier3MinutesRaw);
   const tier3Price = parsePositiveNumber(rawSettings.flat_rate_tier3_price, DEFAULT_FLAT_RATE_SETTINGS.flat_rate_tier3_price);
 
+  const tier4MinutesRaw = parsePositiveNumber(rawSettings.flat_rate_tier4_minutes, DEFAULT_FLAT_RATE_SETTINGS.flat_rate_tier4_minutes);
+  const tier4Minutes = Math.max(tier3Minutes + 1, tier4MinutesRaw);
+  const tier4Price = parsePositiveNumber(rawSettings.flat_rate_tier4_price, DEFAULT_FLAT_RATE_SETTINGS.flat_rate_tier4_price);
+
   return {
     flat_rate_tier1_minutes: tier1Minutes,
     flat_rate_tier1_price: tier1Price,
@@ -43,6 +51,8 @@ function normalizeFlatRateSettings(rawSettings = {}) {
     flat_rate_tier2_price: tier2Price,
     flat_rate_tier3_minutes: tier3Minutes,
     flat_rate_tier3_price: tier3Price,
+    flat_rate_tier4_minutes: tier4Minutes,
+    flat_rate_tier4_price: tier4Price,
   };
 }
 
@@ -54,6 +64,7 @@ function calculateFlatRateAmountFromMinutes(minutes, pricingSettings, options = 
     { minutes: pricing.flat_rate_tier1_minutes, price: pricing.flat_rate_tier1_price },
     { minutes: pricing.flat_rate_tier2_minutes, price: pricing.flat_rate_tier2_price },
     { minutes: pricing.flat_rate_tier3_minutes, price: pricing.flat_rate_tier3_price },
+    { minutes: pricing.flat_rate_tier4_minutes, price: pricing.flat_rate_tier4_price },
   ];
 
   if (absMinutes === 0) {

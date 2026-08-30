@@ -2,13 +2,119 @@ const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
 
-const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'pisonet.db');
+function resolveDatabasePath(configPath) {
+  if (!configPath) {
+    return path.join(__dirname, 'pisonet.db');
+  }
+
+  if (path.isAbsolute(configPath)) {
+    return configPath;
+  }
+
+  return path.resolve(__dirname, configPath);
+}
+
+const dbPath = resolveDatabasePath(process.env.DATABASE_PATH);
 const wasmPath = path.join(__dirname, 'node_modules', 'sql.js', 'dist');
+const AUTO_BACKUP_INTERVAL_MS = 30 * 60 * 1000;
+const AUTO_BACKUP_DIR = path.join(path.dirname(dbPath), 'backups', 'auto');
 
 let sqlDb = null;
 let SqlJsModule = null;
 let saveTimer = null;
 let pendingSave = false;
+let autoBackupTimer = null;
+
+function buildCorruptDbPath() {
+  const parsedPath = path.parse(dbPath);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return path.join(parsedPath.dir, `${parsedPath.name}.corrupt-${timestamp}${parsedPath.ext}`);
+}
+
+function buildBackupDbPath(targetPath = dbPath) {
+  return `${targetPath}.bak`;
+}
+
+function buildAutoBackupPath() {
+  const parsedPath = path.parse(dbPath);
+  return path.join(AUTO_BACKUP_DIR, `${parsedPath.name}.auto${parsedPath.ext}`);
+}
+
+function writeDatabaseFileAtomically(targetPath, dataBuffer) {
+  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
+  const backupPath = buildBackupDbPath(targetPath);
+
+  try {
+    const fd = fs.openSync(tempPath, 'w');
+    try {
+      fs.writeFileSync(fd, dataBuffer);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    if (fs.existsSync(targetPath)) {
+      fs.copyFileSync(targetPath, backupPath);
+    }
+
+    if (fs.existsSync(targetPath)) {
+      fs.rmSync(targetPath, { force: true });
+    }
+
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.rmSync(tempPath, { force: true });
+      }
+    } catch (cleanupErr) {
+      console.warn('⚠️ Failed to clean up temporary database file:', cleanupErr);
+    }
+    throw err;
+  }
+}
+
+function quarantineInvalidDatabaseFile(loadErr) {
+  const corruptPath = buildCorruptDbPath();
+
+  try {
+    fs.renameSync(dbPath, corruptPath);
+    console.warn(`⚠️ Invalid SQLite database detected. Moved corrupt file to ${corruptPath}`);
+  } catch (renameErr) {
+    console.warn('⚠️ Invalid SQLite database detected, but failed to quarantine the file:', renameErr);
+  }
+
+  console.warn('⚠️ Starting with a fresh SQLite database after load failure:', loadErr);
+  sqlDb = new SqlJsModule.Database();
+}
+
+function loadDatabaseFile(SQL) {
+  const candidatePaths = [dbPath, buildBackupDbPath(dbPath)];
+
+  for (const candidatePath of candidatePaths) {
+    if (!fs.existsSync(candidatePath)) {
+      continue;
+    }
+
+    try {
+      const fileBuffer = fs.readFileSync(candidatePath);
+      const candidateDb = new SQL.Database(new Uint8Array(fileBuffer));
+      candidateDb.exec('SELECT name FROM sqlite_master LIMIT 1;');
+
+      if (candidatePath !== dbPath) {
+        writeDatabaseFileAtomically(dbPath, Buffer.from(candidateDb.export()));
+        console.warn(`⚠️ Recovered database from backup: ${candidatePath}`);
+      }
+
+      return candidateDb;
+    } catch (validationErr) {
+      continue;
+    }
+  }
+
+  quarantineInvalidDatabaseFile(new Error('No valid database snapshot was available'));
+  return sqlDb;
+}
 
 function writeCurrentDbToFile(targetPath) {
   if (!sqlDb) {
@@ -16,7 +122,36 @@ function writeCurrentDbToFile(targetPath) {
   }
 
   const data = sqlDb.export();
-  fs.writeFileSync(targetPath, Buffer.from(data));
+  writeDatabaseFileAtomically(targetPath, Buffer.from(data));
+}
+
+function performAutoBackup() {
+  if (!sqlDb) {
+    return;
+  }
+
+  try {
+    fs.mkdirSync(AUTO_BACKUP_DIR, { recursive: true });
+    const autoBackupPath = buildAutoBackupPath();
+    writeCurrentDbToFile(autoBackupPath);
+    console.log(`💾 Auto backup saved: ${autoBackupPath}`);
+  } catch (backupErr) {
+    console.error('⚠️ Auto backup failed:', backupErr);
+  }
+}
+
+function startAutoBackupScheduler() {
+  if (autoBackupTimer) {
+    return;
+  }
+
+  autoBackupTimer = setInterval(() => {
+    performAutoBackup();
+  }, AUTO_BACKUP_INTERVAL_MS);
+
+  if (typeof autoBackupTimer.unref === 'function') {
+    autoBackupTimer.unref();
+  }
 }
 
 function scheduleSave() {
@@ -28,7 +163,7 @@ function scheduleSave() {
   saveTimer = setTimeout(() => {
     if (pendingSave && sqlDb) {
       const data = sqlDb.export();
-      fs.writeFileSync(dbPath, Buffer.from(data));
+      writeDatabaseFileAtomically(dbPath, Buffer.from(data));
     }
     pendingSave = false;
     saveTimer = null;
@@ -47,6 +182,46 @@ function getLastInsertId() {
   const row = stmt.getAsObject();
   stmt.free();
   return row && row.id ? row.id : 0;
+}
+
+function migrateTransactionsUnitIdToNullable() {
+  const columns = db.all('PRAGMA table_info(transactions)');
+  const unitIdColumn = columns.find((column) => column.name === 'unit_id');
+
+  if (!unitIdColumn || Number(unitIdColumn.notnull) === 0) {
+    return;
+  }
+
+  const existingRows = db.all(
+    'SELECT id, unit_id, amount, denomination, timestamp, transaction_type, session_id FROM transactions ORDER BY id ASC'
+  );
+
+  db.run('BEGIN TRANSACTION');
+  db.run('ALTER TABLE transactions RENAME TO transactions_old');
+  db.run(`
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      unit_id INTEGER,
+      amount REAL NOT NULL,
+      denomination INTEGER,
+      timestamp TEXT NOT NULL,
+      transaction_type TEXT DEFAULT 'coin',
+      session_id INTEGER,
+      description TEXT,
+      FOREIGN KEY (unit_id) REFERENCES units(id),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )
+  `);
+
+  existingRows.forEach((row) => {
+    db.run(
+      'INSERT INTO transactions (id, unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [row.id, row.unit_id, row.amount, row.denomination, row.timestamp, row.transaction_type, row.session_id, null]
+    );
+  });
+
+  db.run('DROP TABLE transactions_old');
+  db.run('COMMIT');
 }
 
 const db = {
@@ -71,6 +246,10 @@ const db = {
 
     const fileBuffer = fs.readFileSync(sourcePath);
     sqlDb = new SqlJsModule.Database(new Uint8Array(fileBuffer));
+
+    // Restored backups may come from older schema versions.
+    // Re-apply idempotent migrations so new columns (e.g. transactions.description) exist.
+    initializeDatabase();
 
     scheduleSave();
   },
@@ -241,6 +420,18 @@ function initializeDatabase() {
       }
     });
 
+    db.run("ALTER TABLE units ADD COLUMN status_mode TEXT DEFAULT 'active'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding units.status_mode column:', err);
+      }
+    });
+
+    db.run("UPDATE units SET status_mode = 'active' WHERE status_mode IS NULL OR TRIM(status_mode) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling units.status_mode column:', err);
+      }
+    });
+
     db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,16 +448,25 @@ function initializeDatabase() {
     db.run(`
       CREATE TABLE IF NOT EXISTS transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        unit_id INTEGER NOT NULL,
+        unit_id INTEGER,
         amount REAL NOT NULL,
         denomination INTEGER,
         timestamp TEXT NOT NULL,
         transaction_type TEXT DEFAULT 'coin',
         session_id INTEGER,
+        description TEXT,
         FOREIGN KEY (unit_id) REFERENCES units(id),
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       )
     `);
+
+    db.run('ALTER TABLE transactions ADD COLUMN description TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.description column:', err);
+      }
+    });
+
+    migrateTransactionsUnitIdToNullable();
 
     db.run(`
       CREATE TABLE IF NOT EXISTS hardware_log (
@@ -303,6 +503,8 @@ function initializeDatabase() {
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier2_price', '10')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_minutes', '60')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier3_price', '15')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier4_minutes', '75')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('flat_rate_tier4_price', '20')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);
@@ -334,8 +536,11 @@ db.ready = initSqlJs({
   SqlJsModule = SQL;
 
   if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    sqlDb = new SQL.Database(new Uint8Array(fileBuffer));
+    try {
+      sqlDb = loadDatabaseFile(SQL);
+    } catch (loadErr) {
+      quarantineInvalidDatabaseFile(loadErr);
+    }
   } else {
     sqlDb = new SQL.Database();
   }
@@ -343,6 +548,7 @@ db.ready = initSqlJs({
   console.log('✅ Connected to SQLite database (sql.js)');
   initializeDatabase();
   scheduleSave();
+  startAutoBackupScheduler();
 
   return db;
 }).catch((err) => {

@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
+  Print as PrintIcon,
   ReceiptLong as TransactionIcon,
   BarChart as ReportsIcon,
   Paid as CoinsOutIcon,
@@ -15,6 +16,7 @@ import {
 } from '@mui/icons-material';
 
 import AdminDashboard from './AdminDashboard';
+import PrintServices from './PrintServices';
 import AdminTransactions from './AdminTransactions';
 import AdminReports from './AdminReports';
 import AdminCoinsOut from './AdminCoinsOut';
@@ -62,6 +64,7 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           sx={{ minHeight: isMobile ? 44 : 48 }}
         >
           <Tab icon={<DashboardIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Dashboard" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<PrintIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Print Services" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<TransactionIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Transactions" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<ReportsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Reports" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<CoinsOutIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Coins Out" sx={{ minHeight: isMobile ? 44 : 48 }} />
@@ -84,15 +87,18 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
         />
       </TabPanel>
       <TabPanel value={value} index={1} isMobile={isMobile}>
-        <AdminTransactions adminPassword={adminPassword} />
+        <PrintServices />
       </TabPanel>
       <TabPanel value={value} index={2} isMobile={isMobile}>
-        <AdminReports />
+        <AdminTransactions adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={3} isMobile={isMobile}>
-        <AdminCoinsOut adminPassword={adminPassword} />
+        <AdminReports />
       </TabPanel>
       <TabPanel value={value} index={4} isMobile={isMobile}>
+        <AdminCoinsOut adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={5} isMobile={isMobile}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

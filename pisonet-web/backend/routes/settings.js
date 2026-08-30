@@ -6,7 +6,19 @@ const db = require('../database');
 const { hashPassword, validateAdminPassword, requireAdminAuth } = require('../admin-auth');
 const { calculateFlatRateAmountFromMinutes, normalizeFlatRateSettings } = require('../pricing');
 
-const dbFilePath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'pisonet.db');
+function resolveDatabasePath(configPath) {
+  if (!configPath) {
+    return path.join(__dirname, '..', 'pisonet.db');
+  }
+
+  if (path.isAbsolute(configPath)) {
+    return configPath;
+  }
+
+  return path.resolve(__dirname, '..', configPath);
+}
+
+const dbFilePath = resolveDatabasePath(process.env.DATABASE_PATH);
 const coinsOutDir = path.join(__dirname, '..', 'backups', 'coins-out');
 
 function dbAllAsync(sql, params = []) {
@@ -94,6 +106,49 @@ function formatNumber(value, digits = 2) {
   });
 }
 
+function formatIsoDateTime(value) {
+  const safe = String(value || '').trim();
+  if (!safe) {
+    return 'N/A';
+  }
+
+  const parsed = new Date(safe);
+  if (Number.isNaN(parsed.getTime())) {
+    return safe;
+  }
+
+  return parsed.toLocaleString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+}
+
+function getTransactionTypeLabel(type) {
+  const labels = {
+    coin_acceptor: 'Coin Acceptor',
+    open_time: 'Open Time',
+    admin_add: 'Admin Add',
+    admin_deduct: 'Admin Deduct',
+    print_document_short_bw: 'Print - Document Short (A4/Letter) B&W',
+    print_document_short_color: 'Print - Document Short (A4/Letter) Color',
+    print_document_long_bw: 'Print - Document Long (Legal) B&W',
+    print_document_long_color: 'Print - Document Long (Legal) Color',
+    print_photo_short_bw: 'Print - Photo Short (A4/Letter) B&W',
+    print_photo_short_color: 'Print - Photo Short (A4/Letter) Color',
+    print_photo_long_bw: 'Print - Photo Long (Legal) B&W',
+    print_photo_long_color: 'Print - Photo Long (Legal) Color',
+    print_photo_short_special: 'Print - Photo Short (A4/Letter) Special Paper',
+    print_photo_long_special: 'Print - Photo Long (Legal) Special Paper',
+  };
+
+  return labels[type] || String(type || 'Unknown');
+}
+
 function readFinalReportOrThrow(reportFile) {
   const normalizedFile = path.basename(String(reportFile || '').trim());
 
@@ -139,10 +194,14 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
   const breakdown = Array.isArray(report?.revenue_breakdown_by_transaction_type)
     ? report.revenue_breakdown_by_transaction_type
     : [];
+  const transactionDetails = Array.isArray(report?.transactions)
+    ? report.transactions
+    : [];
 
   const rows = breakdown
     .map((item) => {
-      const type = escapeHtml(item.transaction_type || 'unknown');
+      const typeCode = String(item.transaction_type || 'unknown');
+      const type = escapeHtml(getTransactionTypeLabel(typeCode));
       const count = Number(item.count || 0).toLocaleString('en-US');
       const amount = formatNumber(item.total_amount || 0, 2);
       return `
@@ -155,16 +214,35 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
     })
     .join('');
 
-  const generatedAt = escapeHtml(report?.generated_at || 'N/A');
-  const periodStart = escapeHtml(report?.period?.start || 'N/A');
-  const periodEnd = escapeHtml(report?.period?.end || 'N/A');
+  const detailRows = transactionDetails
+    .map((item) => {
+      const timestamp = escapeHtml(formatIsoDateTime(item?.timestamp));
+      const unit = item?.unit_id == null ? '-' : `Unit ${escapeHtml(String(item.unit_id))}`;
+      const type = escapeHtml(getTransactionTypeLabel(item?.transaction_type));
+      const amount = `PHP ${formatNumber(item?.amount || 0, 2)}`;
+      const description = escapeHtml(String(item?.description || '').trim() || '-');
+      return `
+        <tr>
+          <td>${timestamp}</td>
+          <td>${unit}</td>
+          <td>${type}</td>
+          <td class="right">${amount}</td>
+          <td>${description}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const generatedAt = escapeHtml(formatIsoDateTime(report?.generated_at));
+  const periodStart = escapeHtml(formatIsoDateTime(report?.period?.start));
+  const periodEnd = escapeHtml(formatIsoDateTime(report?.period?.end));
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PisoNet Final Report - ${escapeHtml(reportFile)}</title>
+  <title>MJBY iCafe Sales Report - ${escapeHtml(reportFile)}</title>
   <style>
     :root {
       --bg: #f4f6f8;
@@ -288,7 +366,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
 <body>
   <article class="sheet">
     <header class="hero">
-      <h1>PisoNet Final Coins Out Report</h1>
+      <h1>MJBY iCafe Final Coins Out Report</h1>
       <p>${escapeHtml(reportFile)}</p>
     </header>
 
@@ -300,7 +378,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
 
       <div class="cards">
         <div class="card">
-          <div class="label">Total Revenue</div>
+          <div class="label">Total Sales</div>
           <div class="value">PHP ${formatNumber(totals.estimated_total_revenue || 0, 2)}</div>
         </div>
         <div class="card">
@@ -322,7 +400,7 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
       </div>
 
       <div class="section">
-        <h2>Revenue Breakdown by Transaction Type</h2>
+        <h2>Sales Breakdown by Transaction Type</h2>
         ${rows ? `
           <table>
             <thead>
@@ -335,6 +413,24 @@ function buildFinalReportHtml(report, reportFile, printMode = false) {
             <tbody>${rows}</tbody>
           </table>
         ` : '<div class="empty">No transaction entries were captured for this period.</div>'}
+      </div>
+
+      <div class="section">
+        <h2>Transaction Details</h2>
+        ${detailRows ? `
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Unit</th>
+                <th>Type</th>
+                <th class="right">Amount</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>${detailRows}</tbody>
+          </table>
+        ` : '<div class="empty">No transactions captured for this period.</div>'}
       </div>
     </section>
   </article>
@@ -429,20 +525,23 @@ function buildFinalReportPdf(report, reportFile) {
   const breakdown = Array.isArray(report?.revenue_breakdown_by_transaction_type)
     ? report.revenue_breakdown_by_transaction_type
     : [];
+  const transactionDetails = Array.isArray(report?.transactions)
+    ? report.transactions
+    : [];
 
   const lines = [
-    'PisoNet Final Coins Out Report',
+    'MJBY iCafe Final Coins Out Report',
     `File: ${reportFile}`,
-    `Generated: ${report?.generated_at || 'N/A'}`,
-    `Coverage: ${report?.period?.start || 'N/A'} to ${report?.period?.end || 'N/A'}`,
+    `Generated: ${formatIsoDateTime(report?.generated_at)}`,
+    `Coverage: ${formatIsoDateTime(report?.period?.start)} to ${formatIsoDateTime(report?.period?.end)}`,
     '',
-    `Total Revenue: PHP ${formatNumber(toSafeNumber(totals.estimated_total_revenue || 0, 2), 2)}`,
+    `Total Sales: PHP ${formatNumber(toSafeNumber(totals.estimated_total_revenue || 0, 2), 2)}`,
     `Transaction Count: ${Number(report?.transaction_count || 0).toLocaleString('en-US')}`,
     `Estimated Usage Hours: ${formatNumber(toSafeNumber(electricity.estimated_usage_hours || 0, 2), 2)} h`,
     `Estimated kWh: ${formatNumber(toSafeNumber(electricity.estimated_kwh || 0, 2), 2)} kWh`,
     `Estimated Electricity Cost: PHP ${formatNumber(toSafeNumber(electricity.estimated_cost || 0, 2), 2)}`,
     '',
-    'Revenue Breakdown by Transaction Type',
+    'Sales Breakdown by Transaction Type',
     '------------------------------------',
   ];
 
@@ -450,9 +549,27 @@ function buildFinalReportPdf(report, reportFile) {
     lines.push('No transactions captured in this report.');
   } else {
     breakdown.forEach((item, idx) => {
+      const typeLabel = getTransactionTypeLabel(item.transaction_type || 'unknown');
       lines.push(
-        `${idx + 1}. ${String(item.transaction_type || 'unknown')} | Count: ${Number(item.count || 0)} | Amount: PHP ${formatNumber(item.total_amount || 0, 2)}`
+        `${idx + 1}. ${typeLabel} | Count: ${Number(item.count || 0)} | Amount: PHP ${formatNumber(item.total_amount || 0, 2)}`
       );
+    });
+  }
+
+  lines.push('');
+  lines.push('Transaction Details');
+  lines.push('-------------------');
+
+  if (transactionDetails.length === 0) {
+    lines.push('No transactions captured in this report.');
+  } else {
+    transactionDetails.forEach((item, idx) => {
+      const timestamp = formatIsoDateTime(item?.timestamp);
+      const unit = item?.unit_id == null ? '-' : `Unit ${item.unit_id}`;
+      const type = getTransactionTypeLabel(item?.transaction_type);
+      const amount = formatNumber(item?.amount || 0, 2);
+      const description = String(item?.description || '').trim() || '-';
+      lines.push(`${idx + 1}. ${timestamp} | ${unit} | ${type} | PHP ${amount} | ${description}`);
     });
   }
 
@@ -523,6 +640,39 @@ router.put('/admin/password', (req, res) => {
   });
 });
 
+// GET public print service pricing (read-only)
+router.get('/print-services', (req, res) => {
+  const defaultPrices = {
+    document_short_bw: 3,
+    document_short_color: 5,
+    document_long_bw: 5,
+    document_long_color: 7,
+    photo_short_bw: 5,
+    photo_short_color: 10,
+    photo_long_bw: 10,
+    photo_long_color: 15,
+    photo_short_special: 20,
+    photo_long_special: 30,
+  };
+
+  db.get('SELECT value FROM settings WHERE key = ?', ['print_service_prices'], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (row && row.value) {
+      try {
+        const prices = JSON.parse(row.value);
+        return res.json(prices);
+      } catch (e) {
+        return res.json(defaultPrices);
+      }
+    }
+
+    return res.json(defaultPrices);
+  });
+});
+
 router.use(requireAdminAuth);
 
 // POST Coins Out
@@ -536,8 +686,8 @@ router.post('/admin/coins-out', async (req, res) => {
     const slug = toSlugTimestamp(now);
 
     const [transactions, settingsRows] = await Promise.all([
-      dbAllAsync('SELECT unit_id, amount, denomination, timestamp, transaction_type FROM transactions ORDER BY timestamp ASC'),
-      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price')")
+      dbAllAsync('SELECT unit_id, amount, denomination, timestamp, transaction_type, description FROM transactions ORDER BY timestamp ASC'),
+      dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price', 'flat_rate_tier4_minutes', 'flat_rate_tier4_price')")
     ]);
 
     const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
@@ -580,6 +730,14 @@ router.post('/admin/coins-out', async (req, res) => {
         },
       },
       revenue_breakdown_by_transaction_type: revenueBreakdown,
+      transactions: transactions.map((tx) => ({
+        unit_id: tx.unit_id,
+        amount: Number(tx.amount || 0),
+        denomination: tx.denomination == null ? null : Number(tx.denomination),
+        timestamp: tx.timestamp,
+        transaction_type: tx.transaction_type,
+        description: String(tx.description || '').trim() || null,
+      })),
       transaction_count: transactions.length,
       period: {
         start: transactions[0]?.timestamp || null,
@@ -679,6 +837,10 @@ router.get('/admin/final-reports/:reportFile/html', (req, res) => {
     const { normalizedFile, report } = readFinalReportOrThrow(req.params.reportFile);
     const printMode = String(req.query?.print || '0') === '1';
     const html = buildFinalReportHtml(report, normalizedFile, printMode);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     return res.type('html').send(html);
   } catch (error) {
     return res.status(error.statusCode || 500).json({ error: error.message || 'Failed to render final report HTML' });
@@ -694,6 +856,10 @@ router.get('/admin/final-reports/:reportFile/pdf', (req, res) => {
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${pdfName}"`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     return res.send(pdfBuffer);
   } catch (error) {
     return res.status(error.statusCode || 500).json({ error: error.message || 'Failed to generate final report PDF' });
@@ -916,6 +1082,72 @@ router.put('/', (req, res) => {
       res.json({ message: 'All settings updated', count: Object.keys(settings).length });
     }
   }, 100);
+});
+
+// GET print service pricing
+router.get('/admin/print-services', (req, res) => {
+  const defaultPrices = {
+    document_short_bw: 3,
+    document_short_color: 5,
+    document_long_bw: 5,
+    document_long_color: 7,
+    photo_short_bw: 5,
+    photo_short_color: 10,
+    photo_long_bw: 10,
+    photo_long_color: 15,
+    photo_short_special: 20,
+    photo_long_special: 30,
+  };
+
+  db.get('SELECT value FROM settings WHERE key = ?', ['print_service_prices'], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    if (row && row.value) {
+      try {
+        const prices = JSON.parse(row.value);
+        return res.json(prices);
+      } catch (e) {
+        return res.json(defaultPrices);
+      }
+    }
+
+    res.json(defaultPrices);
+  });
+});
+
+// PUT print service pricing
+router.put('/admin/print-services', (req, res) => {
+  const prices = req.body;
+  const timestamp = new Date().toISOString();
+  const pricesJson = JSON.stringify(prices);
+
+  db.run(
+    'UPDATE settings SET value = ?, updated_at = ? WHERE key = ?',
+    [pricesJson, timestamp, 'print_service_prices'],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (this.changes === 0) {
+        // Insert if doesn't exist
+        db.run(
+          'INSERT INTO settings (key, value) VALUES (?, ?)',
+          ['print_service_prices', pricesJson],
+          (err) => {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            res.json({ message: 'Print service prices updated', prices });
+          }
+        );
+      } else {
+        res.json({ message: 'Print service prices updated', prices });
+      }
+    }
+  );
 });
 
 module.exports = router;

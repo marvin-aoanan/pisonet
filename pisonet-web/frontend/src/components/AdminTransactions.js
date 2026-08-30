@@ -95,10 +95,13 @@ function AdminTransactions({ adminPassword }) {
     const tier2Price = Math.max(0, Number(flatRateSettings.flat_rate_tier2_price || 10));
     const tier3Minutes = Math.max(tier2Minutes + 1, Number(flatRateSettings.flat_rate_tier3_minutes || 60));
     const tier3Price = Math.max(0, Number(flatRateSettings.flat_rate_tier3_price || 15));
+    const tier4Minutes = Math.max(tier3Minutes + 1, Number(flatRateSettings.flat_rate_tier4_minutes || 75));
+    const tier4Price = Math.max(0, Number(flatRateSettings.flat_rate_tier4_price || 20));
     const tiers = [
       { minutes: tier1Minutes, price: tier1Price },
       { minutes: tier2Minutes, price: tier2Price },
       { minutes: tier3Minutes, price: tier3Price },
+      { minutes: tier4Minutes, price: tier4Price },
     ];
 
     const sign = amount < 0 ? -1 : 1;
@@ -187,6 +190,18 @@ function AdminTransactions({ adminPassword }) {
         const entry = typeMap[params.value] || { label: params.value, color: 'default' };
         return <Chip label={entry.label} color={entry.color} size="small" />;
       }
+    },
+    {
+      field: 'description',
+      headerName: 'Description',
+      minWidth: 220,
+      flex: 1,
+      sortable: false,
+      renderCell: (params) => (
+        <Typography variant="body2" color="text.secondary" title={params.value || ''} noWrap>
+          {params.value || '-'}
+        </Typography>
+      )
     },
     { 
       field: 'amount', 

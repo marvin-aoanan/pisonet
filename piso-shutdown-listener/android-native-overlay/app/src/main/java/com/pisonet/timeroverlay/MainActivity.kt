@@ -174,7 +174,7 @@ class MainActivity : AppCompatActivity() {
         val autoDetectedUnit = detectUnitFromIpRange()
 
         inputUnit.setText((existing?.unitId ?: autoDetectedUnit ?: "").toString())
-        inputServer.setText(existing?.serverHost ?: "192.168.254.201")
+        inputServer.setText(existing?.serverHost ?: "192.168.254.200")
         inputWsPort.setText((existing?.wsPort ?: 5001).toString())
         inputApiPort.setText((existing?.apiPort ?: 5001).toString())
         inputGrace.setText((existing?.graceSeconds ?: 60).toString())
