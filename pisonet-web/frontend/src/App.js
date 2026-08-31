@@ -611,6 +611,11 @@ function App() {
     }
   };
 
+  const handlePosSaleRecorded = useCallback(() => {
+    fetchTotalRevenue();
+    fetchStats();
+  }, [fetchTotalRevenue, fetchStats]);
+
   const selectedUnit = units.find(u => u.id === selectedUnitId || u.id === selection.unit_id);
 
   return (
@@ -718,6 +723,7 @@ function App() {
                   onResumeTimer={handleResumeTimer}
                   adminPassword={adminPassword}
                   onAdminPasswordChanged={setAdminPassword}
+                  onPosSaleRecorded={handlePosSaleRecorded}
                 />
               )}
             </>

@@ -67,6 +67,10 @@ function AdminTransactions({ adminPassword }) {
     const denomination = Number(row?.denomination || 0);
     const type = row?.transaction_type;
 
+    if (type === 'product_order') {
+      return 0;
+    }
+
     if (type === 'open_time') {
       return Math.max(0, Math.floor(denomination * 60));
     }
@@ -78,6 +82,14 @@ function AdminTransactions({ adminPassword }) {
     }
 
     return Math.max(0, Math.floor(amount * pesoToSeconds));
+  };
+
+  const getPosQuantity = (row) => {
+    const value = Number(row?.denomination || 0);
+    if (!Number.isFinite(value) || value < 0) {
+      return 0;
+    }
+    return Math.floor(value);
   };
 
   const getEquivalentPesoAmount = (row) => {
@@ -170,7 +182,11 @@ function AdminTransactions({ adminPassword }) {
       headerName: 'PC Unit', 
       width: 150,
       renderCell: (params) => (
-        <Chip label={`Unit ${params.value}`} size="small" variant="outlined" />
+        <Chip
+          label={params.row.transaction_type === 'product_order' ? 'Admin' : `Unit ${params.value}`}
+          size="small"
+          variant="outlined"
+        />
       )
     },
     { 
@@ -182,6 +198,7 @@ function AdminTransactions({ adminPassword }) {
           coin: { label: 'Coin', color: 'success' },
           coin_acceptor: { label: 'Coin Acceptor', color: 'success' },
           gateway: { label: 'Gateway', color: 'info' },
+          product_order: { label: 'Product Order', color: 'info' },
           admin_add: { label: 'Admin Add', color: 'primary' },
           admin_deduct: { label: 'Admin Deduct', color: 'warning' },
           open_time: { label: 'Open Time', color: 'secondary' },
@@ -236,7 +253,7 @@ function AdminTransactions({ adminPassword }) {
     },
     {
       field: 'equivalent_time',
-      headerName: 'Time',
+      headerName: 'Time / Quantity',
       width: 140,
       sortable: false,
       filterable: false,
@@ -244,7 +261,9 @@ function AdminTransactions({ adminPassword }) {
       renderCell: (params) => (
         <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
           <Typography color="info.main" fontWeight="bold">
-            {formatDurationFromSeconds(getEquivalentSeconds(params.row))}
+            {params.row.transaction_type === 'product_order'
+              ? `${getPosQuantity(params.row)}`
+              : formatDurationFromSeconds(getEquivalentSeconds(params.row))}
           </Typography>
         </Box>
       )

@@ -5,6 +5,8 @@ import {
   Typography,
   Alert,
   Button,
+  FormControlLabel,
+  Checkbox,
   TextField,
   Divider,
   Snackbar,
@@ -27,10 +29,83 @@ function AdminCoinsOut({ adminPassword }) {
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportActionLoading, setReportActionLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [reportOnly, setReportOnly] = useState(false);
+  const [coverageMode, setCoverageMode] = useState('all');
+  const [coverageStartDate, setCoverageStartDate] = useState('');
+  const [coverageEndDate, setCoverageEndDate] = useState('');
 
   const actionButtonSx = {
     minWidth: 210,
     width: isMobile ? '100%' : 'auto'
+  };
+
+  const formatDateLocal = (dateValue) => {
+    const yyyy = dateValue.getFullYear();
+    const mm = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateValue.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const startOfWeek = (dateValue) => {
+    const next = new Date(dateValue);
+    const day = next.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    next.setDate(next.getDate() + diff);
+    next.setHours(0, 0, 0, 0);
+    return next;
+  };
+
+  const toBoundaryIso = (dateText, boundary) => {
+    const suffix = boundary === 'start' ? 'T00:00:00.000' : 'T23:59:59.999';
+    const local = new Date(`${dateText}${suffix}`);
+    if (Number.isNaN(local.getTime())) {
+      return null;
+    }
+    return local.toISOString();
+  };
+
+  const getCoveragePayload = () => {
+    if (coverageMode === 'all') {
+      return {};
+    }
+
+    const now = new Date();
+    let startDateText = '';
+    let endDateText = '';
+
+    if (coverageMode === 'today') {
+      startDateText = formatDateLocal(now);
+      endDateText = formatDateLocal(now);
+    } else if (coverageMode === 'this_week') {
+      startDateText = formatDateLocal(startOfWeek(now));
+      endDateText = formatDateLocal(now);
+    } else if (coverageMode === 'this_month') {
+      startDateText = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      endDateText = formatDateLocal(now);
+    } else {
+      startDateText = coverageStartDate;
+      endDateText = coverageEndDate;
+    }
+
+    if (!startDateText || !endDateText) {
+      return { error: 'Please select both coverage start and end dates.' };
+    }
+
+    if (startDateText > endDateText) {
+      return { error: 'Coverage start date must be before or equal to coverage end date.' };
+    }
+
+    const periodStartIso = toBoundaryIso(startDateText, 'start');
+    const periodEndIso = toBoundaryIso(endDateText, 'end');
+
+    if (!periodStartIso || !periodEndIso) {
+      return { error: 'Invalid coverage date(s).' };
+    }
+
+    return {
+      period_start: periodStartIso,
+      period_end: periodEndIso,
+    };
   };
 
   useEffect(() => {
@@ -128,8 +203,17 @@ function AdminCoinsOut({ adminPassword }) {
   };
 
   const handleCoinsOut = async () => {
+    const coverage = getCoveragePayload();
+    if (coverage.error) {
+      setMessage({ type: 'error', text: coverage.error });
+      return;
+    }
+
+    const actionText = reportOnly
+      ? 'generate a final report only (no clearing)'
+      : 'generate a final report, create a DB backup, and clear data based on coverage';
     const confirmed = window.confirm(
-      'Run Coins Out now? This will generate a final report, create a DB backup, and clear transactions/sessions for a new cycle.'
+      `Run Coins Out now? This will ${actionText}.`
     );
 
     if (!confirmed) {
@@ -140,15 +224,23 @@ function AdminCoinsOut({ adminPassword }) {
     try {
       const response = await axios.post(
         `${API_URL}/settings/admin/coins-out`,
-        {},
+        {
+          report_only: reportOnly,
+          clear_data: !reportOnly,
+          ...coverage,
+        },
         { headers: { 'x-admin-password': adminPassword } }
       );
 
       const backupFile = response?.data?.files?.backup_file || 'backup file';
       const reportFile = response?.data?.files?.report_file || 'report file';
+      const filterApplied = Boolean(response?.data?.coverage?.filter_applied);
+      const scopeLabel = filterApplied ? 'selected coverage' : 'all data';
       setMessage({
         type: 'success',
-        text: `Coins Out completed. Generated ${reportFile} and ${backupFile}.`
+        text: reportOnly
+          ? `Final report generated for ${scopeLabel}: ${reportFile}. No data was cleared.`
+          : `Coins Out completed for ${scopeLabel}. Generated ${reportFile} and ${backupFile}.`
       });
       await Promise.all([fetchBackups(), fetchFinalReports()]);
       if (response?.data?.files?.report_file) {
@@ -316,8 +408,53 @@ function AdminCoinsOut({ adminPassword }) {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <Box>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Coins Out will generate a final report, create a DB backup, then clear transactions and sessions. Make sure no active sessions are running before proceeding. Always verify the generated final report and backup files after Coins Out completes.
+            Coins Out can now run in two modes: report-only (no clearing) or finalize cycle (with clearing). You can also scope the report/clear operation to a selected date coverage.
           </Alert>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={reportOnly}
+                  onChange={(e) => setReportOnly(e.target.checked)}
+                />
+              }
+              label="Generate report only (do not clear transactions/sessions)"
+            />
+            <TextField
+              select
+              fullWidth
+              label="Coverage"
+              value={coverageMode}
+              onChange={(e) => setCoverageMode(e.target.value)}
+              SelectProps={{ native: true }}
+            >
+              <option value="all">All Data</option>
+              <option value="today">Today</option>
+              <option value="this_week">This Week</option>
+              <option value="this_month">This Month</option>
+              <option value="custom">Custom Date Range</option>
+            </TextField>
+            {coverageMode === 'custom' ? (
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Start Date"
+                  value={coverageStartDate}
+                  onChange={(e) => setCoverageStartDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="End Date"
+                  value={coverageEndDate}
+                  onChange={(e) => setCoverageEndDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </Box>
+            ) : null}
+          </Box>
           <Button
             variant="contained"
             color="error"
@@ -325,7 +462,7 @@ function AdminCoinsOut({ adminPassword }) {
             disabled={coinsOutLoading}
             sx={actionButtonSx}
           >
-            {coinsOutLoading ? 'Processing Coins Out...' : 'Run Coins Out'}
+            {coinsOutLoading ? 'Processing Coins Out...' : reportOnly ? 'Generate Final Report' : 'Run Coins Out'}
           </Button>
         </Box>
 

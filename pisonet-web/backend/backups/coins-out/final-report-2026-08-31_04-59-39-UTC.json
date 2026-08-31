@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-31T04:59:39.797Z",
+  "totals": {
+    "estimated_total_revenue": 0,
+    "electricity_consumption": {
+      "estimated_usage_hours": 0,
+      "estimated_kwh": 0,
+      "estimated_cost": 0,
+      "estimated_pc_wattage": 200,
+      "estimated_kwh_rate": 16
+    }
+  },
+  "revenue_breakdown_by_transaction_type": [],
+  "transactions": [],
+  "transaction_count": 0,
+  "period": {
+    "start": null,
+    "end": null
+  }
+}

@@ -56,6 +56,43 @@ function toSlugTimestamp(dateValue) {
   return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}-UTC`;
 }
 
+function parseIsoDateOrThrow(value, fieldName) {
+  const safe = String(value || '').trim();
+  if (!safe) {
+    return null;
+  }
+
+  const parsed = new Date(safe);
+  if (Number.isNaN(parsed.getTime())) {
+    const error = new Error(`${fieldName} must be a valid date/time`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return parsed;
+}
+
+function toUtcIso(value) {
+  return value instanceof Date ? value.toISOString() : null;
+}
+
+function timestampInRange(timestampValue, startDate, endDate) {
+  const ts = new Date(timestampValue || 0);
+  if (Number.isNaN(ts.getTime())) {
+    return false;
+  }
+
+  if (startDate && ts < startDate) {
+    return false;
+  }
+
+  if (endDate && ts > endDate) {
+    return false;
+  }
+
+  return true;
+}
+
 function computeUsageHours(transaction, pesoToSeconds) {
   const amount = Number(transaction.amount || 0);
   const denomination = Number(transaction.denomination || 0);
@@ -685,6 +722,25 @@ router.post('/admin/coins-out', async (req, res) => {
     const nowIso = now.toISOString();
     const slug = toSlugTimestamp(now);
 
+    const reportOnly = Boolean(req.body?.report_only);
+    const clearDataBody = req.body?.clear_data;
+    const clearData = reportOnly ? false : (typeof clearDataBody === 'boolean' ? clearDataBody : true);
+
+    const periodStartRaw = req.body?.period_start ?? req.body?.coverage_start ?? req.body?.date_from ?? null;
+    const periodEndRaw = req.body?.period_end ?? req.body?.coverage_end ?? req.body?.date_to ?? null;
+    const hasCoverage = Boolean(String(periodStartRaw || '').trim() || String(periodEndRaw || '').trim());
+
+    if (hasCoverage && (!periodStartRaw || !periodEndRaw)) {
+      return res.status(400).json({ error: 'period_start and period_end are both required when using coverage filter' });
+    }
+
+    const periodStartDate = hasCoverage ? parseIsoDateOrThrow(periodStartRaw, 'period_start') : null;
+    const periodEndDate = hasCoverage ? parseIsoDateOrThrow(periodEndRaw, 'period_end') : null;
+
+    if (periodStartDate && periodEndDate && periodStartDate > periodEndDate) {
+      return res.status(400).json({ error: 'period_start must be earlier than or equal to period_end' });
+    }
+
     const [transactions, settingsRows] = await Promise.all([
       dbAllAsync('SELECT unit_id, amount, denomination, timestamp, transaction_type, description FROM transactions ORDER BY timestamp ASC'),
       dbAllAsync("SELECT key, value FROM settings WHERE key IN ('peso_to_seconds', 'estimated_pc_wattage', 'estimated_kwh_rate', 'flat_rate_tier1_minutes', 'flat_rate_tier1_price', 'flat_rate_tier2_minutes', 'flat_rate_tier2_price', 'flat_rate_tier3_minutes', 'flat_rate_tier3_price', 'flat_rate_tier4_minutes', 'flat_rate_tier4_price')")
@@ -696,13 +752,17 @@ router.post('/admin/coins-out', async (req, res) => {
     const ratePerKwh = Number(settings.estimated_kwh_rate || 12);
     const flatRateSettings = normalizeFlatRateSettings(settings);
 
-    const totalRevenue = transactions.reduce((sum, tx) => sum + normalizeRevenueAmount(tx, flatRateSettings), 0);
-    const totalUsageHours = transactions.reduce((sum, tx) => sum + computeUsageHours(tx, pesoToSeconds), 0);
+    const scopedTransactions = hasCoverage
+      ? transactions.filter((tx) => timestampInRange(tx.timestamp, periodStartDate, periodEndDate))
+      : transactions;
+
+    const totalRevenue = scopedTransactions.reduce((sum, tx) => sum + normalizeRevenueAmount(tx, flatRateSettings), 0);
+    const totalUsageHours = scopedTransactions.reduce((sum, tx) => sum + computeUsageHours(tx, pesoToSeconds), 0);
     const estimatedKwh = (totalUsageHours * wattage) / 1000;
     const estimatedCost = estimatedKwh * ratePerKwh;
 
     const breakdownMap = new Map();
-    for (const tx of transactions) {
+    for (const tx of scopedTransactions) {
       const type = tx.transaction_type || 'unknown';
       const entry = breakdownMap.get(type) || { transaction_type: type, count: 0, total_amount: 0 };
       entry.count += 1;
@@ -730,7 +790,7 @@ router.post('/admin/coins-out', async (req, res) => {
         },
       },
       revenue_breakdown_by_transaction_type: revenueBreakdown,
-      transactions: transactions.map((tx) => ({
+      transactions: scopedTransactions.map((tx) => ({
         unit_id: tx.unit_id,
         amount: Number(tx.amount || 0),
         denomination: tx.denomination == null ? null : Number(tx.denomination),
@@ -738,10 +798,17 @@ router.post('/admin/coins-out', async (req, res) => {
         transaction_type: tx.transaction_type,
         description: String(tx.description || '').trim() || null,
       })),
-      transaction_count: transactions.length,
+      transaction_count: scopedTransactions.length,
       period: {
-        start: transactions[0]?.timestamp || null,
-        end: transactions[transactions.length - 1]?.timestamp || null,
+        start: toUtcIso(periodStartDate) || scopedTransactions[0]?.timestamp || null,
+        end: toUtcIso(periodEndDate) || scopedTransactions[scopedTransactions.length - 1]?.timestamp || null,
+        actual_start: scopedTransactions[0]?.timestamp || null,
+        actual_end: scopedTransactions[scopedTransactions.length - 1]?.timestamp || null,
+        filter_applied: hasCoverage,
+      },
+      mode: {
+        report_only: reportOnly,
+        clear_data: clearData,
       },
     };
 
@@ -751,47 +818,66 @@ router.post('/admin/coins-out', async (req, res) => {
     const reportFilePath = path.join(coinsOutDir, reportFileName);
     fs.writeFileSync(reportFilePath, JSON.stringify(finalReport, null, 2), 'utf8');
 
-    // Allow pending sql.js autosave timer to flush before copying file.
-    await new Promise((resolve) => setTimeout(resolve, 2300));
+    let backupFileName = null;
+    let backupFilePath = null;
+    let dbReset = false;
+    let clearedTransactions = 0;
+    let clearScope = 'none';
 
-    const backupFileName = `backup-${slug}.db`;
-    const backupFilePath = path.join(coinsOutDir, backupFileName);
-    fs.copyFileSync(dbFilePath, backupFilePath);
+    if (clearData) {
+      // Allow pending sql.js autosave timer to flush before copying file.
+      await new Promise((resolve) => setTimeout(resolve, 2300));
 
-    // Clear operational data and reset units for fresh DB state while keeping settings/users.
-    await dbRunAsync('DELETE FROM transactions');
-    await dbRunAsync('DELETE FROM sessions');
-    await dbRunAsync('DELETE FROM hardware_log');
-    await dbRunAsync(
-      "UPDATE units SET status = 'Idle', remaining_seconds = 0, total_revenue = 0, timer_paused = 0, open_time = 0, open_time_start = NULL, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, last_status_update = ?",
-      [nowIso]
-    );
+      backupFileName = `backup-${slug}.db`;
+      backupFilePath = path.join(coinsOutDir, backupFileName);
+      fs.copyFileSync(dbFilePath, backupFilePath);
 
-    const resetUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, timer_paused, open_time, open_time_start, open_time_paused, open_time_paused_at, open_time_elapsed_base_seconds FROM units ORDER BY id ASC');
-    if (global.broadcast) {
-      resetUnits.forEach((unit) => {
-        global.broadcast({
-          type: 'UNIT_UPDATE',
-          unit: {
-            id: unit.id,
-            status: unit.status,
-            remaining_seconds: unit.remaining_seconds,
-            total_revenue: unit.total_revenue,
-            timer_paused: unit.timer_paused,
-            open_time: unit.open_time,
-            open_time_start: unit.open_time_start,
-            open_time_paused: unit.open_time_paused,
-            open_time_paused_at: unit.open_time_paused_at,
-            open_time_elapsed_base_seconds: unit.open_time_elapsed_base_seconds,
-            open_time_elapsed: 0,
-            open_time_amount: 0,
-          }
-        });
-      });
+      if (hasCoverage) {
+        const deleteResult = await dbRunAsync('DELETE FROM transactions WHERE timestamp >= ? AND timestamp <= ?', [
+          toUtcIso(periodStartDate),
+          toUtcIso(periodEndDate),
+        ]);
+        clearedTransactions = Number(deleteResult?.changes || 0);
+        clearScope = 'transactions_in_selected_period';
+      } else {
+        // Full-cycle coins out reset.
+        await dbRunAsync('DELETE FROM transactions');
+        await dbRunAsync('DELETE FROM sessions');
+        await dbRunAsync('DELETE FROM hardware_log');
+        await dbRunAsync(
+          "UPDATE units SET status = 'Idle', remaining_seconds = 0, total_revenue = 0, timer_paused = 0, open_time = 0, open_time_start = NULL, open_time_paused = 0, open_time_paused_at = NULL, open_time_elapsed_base_seconds = 0, last_status_update = ?",
+          [nowIso]
+        );
+        dbReset = true;
+        clearScope = 'full_reset';
+
+        const resetUnits = await dbAllAsync('SELECT id, status, remaining_seconds, total_revenue, timer_paused, open_time, open_time_start, open_time_paused, open_time_paused_at, open_time_elapsed_base_seconds FROM units ORDER BY id ASC');
+        if (global.broadcast) {
+          resetUnits.forEach((unit) => {
+            global.broadcast({
+              type: 'UNIT_UPDATE',
+              unit: {
+                id: unit.id,
+                status: unit.status,
+                remaining_seconds: unit.remaining_seconds,
+                total_revenue: unit.total_revenue,
+                timer_paused: unit.timer_paused,
+                open_time: unit.open_time,
+                open_time_start: unit.open_time_start,
+                open_time_paused: unit.open_time_paused,
+                open_time_paused_at: unit.open_time_paused_at,
+                open_time_elapsed_base_seconds: unit.open_time_elapsed_base_seconds,
+                open_time_elapsed: 0,
+                open_time_amount: 0,
+              }
+            });
+          });
+        }
+      }
     }
 
     res.json({
-      message: 'Coins out completed successfully',
+      message: reportOnly ? 'Final report generated successfully (no data was cleared)' : 'Coins out completed successfully',
       report: finalReport,
       files: {
         report_file: reportFileName,
@@ -799,7 +885,15 @@ router.post('/admin/coins-out', async (req, res) => {
         backup_file: backupFileName,
         backup_path: backupFilePath,
       },
-      db_reset: true,
+      db_reset: dbReset,
+      clear_scope: clearScope,
+      cleared_transactions: clearedTransactions,
+      scoped_transaction_count: scopedTransactions.length,
+      coverage: {
+        period_start: toUtcIso(periodStartDate),
+        period_end: toUtcIso(periodEndDate),
+        filter_applied: hasCoverage,
+      },
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Coins out failed' });

@@ -170,6 +170,21 @@ function scheduleSave() {
   }, 2000);
 }
 
+function saveNow() {
+  if (!sqlDb) {
+    throw new Error('Database is not initialized');
+  }
+
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  pendingSave = false;
+  const data = sqlDb.export();
+  writeDatabaseFileAtomically(dbPath, Buffer.from(data));
+}
+
 function normalizeParams(params, cb) {
   if (typeof params === 'function') {
     return { params: undefined, cb: params };
@@ -226,6 +241,7 @@ function migrateTransactionsUnitIdToNullable() {
 
 const db = {
   ready: null,
+  saveNow,
   snapshotToFile(targetPath) {
     writeCurrentDbToFile(targetPath);
   },
@@ -508,6 +524,102 @@ function initializeDatabase() {
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_pc_wattage', '200')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('product_categories', '["Beverages","Snacks"]')`);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        category TEXT,
+        description TEXT,
+        image_url TEXT,
+        size TEXT,
+        quantity_in_stock INTEGER NOT NULL DEFAULT 0 CHECK (quantity_in_stock >= 0),
+        base_price REAL NOT NULL DEFAULT 0 CHECK (base_price >= 0),
+        markup_price REAL NOT NULL DEFAULT 0 CHECK (markup_price >= 0),
+        final_price REAL NOT NULL DEFAULT 0 CHECK (final_price >= 0),
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run('ALTER TABLE products ADD COLUMN category TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding products.category column:', err);
+      }
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS product_sales (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT NOT NULL UNIQUE,
+        subtotal REAL NOT NULL CHECK (subtotal >= 0),
+        payment_method TEXT NOT NULL,
+        notes TEXT,
+        sold_by TEXT NOT NULL,
+        sold_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS product_sale_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        unit_base_price REAL NOT NULL CHECK (unit_base_price >= 0),
+        unit_markup_price REAL NOT NULL CHECK (unit_markup_price >= 0),
+        unit_final_price REAL NOT NULL CHECK (unit_final_price >= 0),
+        line_total REAL NOT NULL CHECK (line_total >= 0),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sale_id) REFERENCES product_sales(id),
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS product_inventory_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        quantity_delta INTEGER NOT NULL,
+        quantity_before INTEGER NOT NULL,
+        quantity_after INTEGER NOT NULL,
+        unit_cost REAL,
+        notes TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS product_price_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        base_price_before REAL NOT NULL,
+        base_price_after REAL NOT NULL,
+        markup_price_before REAL NOT NULL,
+        markup_price_after REAL NOT NULL,
+        final_price_before REAL NOT NULL,
+        final_price_after REAL NOT NULL,
+        change_reason TEXT,
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )
+    `);
+
+    db.run('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_product_sales_sold_at ON product_sales(sold_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_product_sale_items_sale_id ON product_sale_items(sale_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_product_inventory_logs_product_created ON product_inventory_logs(product_id, created_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_product_price_logs_product_created ON product_price_logs(product_id, created_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_transactions_type_timestamp ON transactions(transaction_type, timestamp)');
 
     db.get('SELECT COUNT(*) as count FROM units', [], (err, row) => {
       if (err) {

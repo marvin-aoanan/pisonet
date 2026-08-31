@@ -14,11 +14,14 @@ const db = require('./database');
 const unitsRouter = require('./routes/units');
 const transactionsRouter = require('./routes/transactions');
 const settingsRouter = require('./routes/settings');
+const productsRouter = require('./routes/products');
+const posSalesRouter = require('./routes/pos-sales');
 const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('./pricing');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+const frontendImagesDir = path.join(__dirname, '..', 'frontend', 'public', 'images');
 
 const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -454,6 +457,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+app.use('/images', express.static(frontendImagesDir));
 app.use(express.static('public'));
 
 // Request logging middleware
@@ -466,6 +470,8 @@ app.use((req, res, next) => {
 app.use('/api/units', unitsRouter);
 app.use('/api/transactions', transactionsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/products', productsRouter);
+app.use('/api/pos-sales', posSalesRouter);
 
 // Kiosk unit selection endpoints
 app.get('/api/kiosk/selection', (req, res) => {
@@ -542,7 +548,9 @@ app.get('/', (req, res) => {
       stats: 'GET /api/stats',
       units: 'GET /api/units',
       transactions: 'GET /api/transactions',
-      settings: 'GET /api/settings'
+      settings: 'GET /api/settings',
+      products: 'GET /api/products',
+      posSales: 'GET /api/pos-sales'
     },
     documentation: 'See API_DOCUMENTATION.md'
   });

@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-08-31T05:05:33.011Z",
+  "totals": {
+    "estimated_total_revenue": 166,
+    "electricity_consumption": {
+      "estimated_usage_hours": 8.55,
+      "estimated_kwh": 1.71,
+      "estimated_cost": 27.36,
+      "estimated_pc_wattage": 200,
+      "estimated_kwh_rate": 16
+    }
+  },
+  "revenue_breakdown_by_transaction_type": [
+    {
+      "transaction_type": "product_order",
+      "count": 4,
+      "total_amount": 146
+    },
+    {
+      "transaction_type": "admin_add",
+      "count": 3,
+      "total_amount": 70
+    },
+    {
+      "transaction_type": "admin_deduct",
+      "count": 2,
+      "total_amount": -50
+    }
+  ],
+  "transactions": [
+    {
+      "unit_id": null,
+      "amount": 26,
+      "denomination": 2,
+      "timestamp": "2026-08-30T16:07:46.782Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1 | ICE-0001, Ice Pop, N/A, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 26,
+      "denomination": 3,
+      "timestamp": "2026-08-31T04:17:28.905Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1 | ICE-0001, Ice Pop, N/A, 1 | ICE-0002, Cola, N/A, 1"
+    },
+    {
+      "unit_id": 9,
+      "amount": 30,
+      "denomination": 30,
+      "timestamp": "2026-08-31T04:25:31.509Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": -15,
+      "denomination": -15,
+      "timestamp": "2026-08-31T04:25:36.440Z",
+      "transaction_type": "admin_deduct",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": 60,
+      "denomination": 60,
+      "timestamp": "2026-08-31T04:25:41.044Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": -180,
+      "denomination": -180,
+      "timestamp": "2026-08-31T04:25:46.321Z",
+      "transaction_type": "admin_deduct",
+      "description": null
+    },
+    {
+      "unit_id": 1,
+      "amount": 180,
+      "denomination": 180,
+      "timestamp": "2026-08-31T04:28:28.445Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": null,
+      "amount": 22,
+      "denomination": 1,
+      "timestamp": "2026-08-31T04:29:23.987Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 72,
+      "denomination": 6,
+      "timestamp": "2026-08-31T04:41:10.745Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 2 | ICE-0002, Cola, N/A, 1 | ICE-0001, Ice Pop, N/A, 2 | SNACK-0001, Piatos, s, 1, Notes: test yuuiyi"
+    }
+  ],
+  "transaction_count": 9,
+  "period": {
+    "start": "2026-08-30T16:00:00.000Z",
+    "end": "2026-08-31T15:59:59.999Z",
+    "actual_start": "2026-08-30T16:07:46.782Z",
+    "actual_end": "2026-08-31T04:41:10.745Z",
+    "filter_applied": true
+  },
+  "mode": {
+    "report_only": true,
+    "clear_data": false
+  }
+}

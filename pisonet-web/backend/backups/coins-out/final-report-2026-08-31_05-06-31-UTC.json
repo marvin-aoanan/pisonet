@@ -1,0 +1,326 @@
+{
+  "generated_at": "2026-08-31T05:06:31.625Z",
+  "totals": {
+    "estimated_total_revenue": 646,
+    "electricity_consumption": {
+      "estimated_usage_hours": 33.1453,
+      "estimated_kwh": 6.6291,
+      "estimated_cost": 106.0649,
+      "estimated_pc_wattage": 200,
+      "estimated_kwh_rate": 16
+    }
+  },
+  "revenue_breakdown_by_transaction_type": [
+    {
+      "transaction_type": "product_order",
+      "count": 23,
+      "total_amount": 543
+    },
+    {
+      "transaction_type": "admin_add",
+      "count": 7,
+      "total_amount": 140
+    },
+    {
+      "transaction_type": "open_time",
+      "count": 1,
+      "total_amount": 10
+    },
+    {
+      "transaction_type": "print_document_short_bw",
+      "count": 1,
+      "total_amount": 3
+    },
+    {
+      "transaction_type": "admin_deduct",
+      "count": 2,
+      "total_amount": -50
+    }
+  ],
+  "transactions": [
+    {
+      "unit_id": null,
+      "amount": 3,
+      "denomination": 1,
+      "timestamp": "2026-08-30T11:39:16.507Z",
+      "transaction_type": "print_document_short_bw",
+      "description": "test"
+    },
+    {
+      "unit_id": 1,
+      "amount": 180,
+      "denomination": 180,
+      "timestamp": "2026-08-30T11:40:13.560Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 2,
+      "amount": 30,
+      "denomination": 30,
+      "timestamp": "2026-08-30T11:40:28.675Z",
+      "transaction_type": "admin_add",
+      "description": "billy"
+    },
+    {
+      "unit_id": null,
+      "amount": 30,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:08:25.739Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 15,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:08:46.137Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 10,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:11:04.993Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 10,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:11:19.017Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 15,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:13:44.825Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 15,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:15:17.374Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 30,
+      "denomination": 0,
+      "timestamp": "2026-08-30T12:15:34.950Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 3,
+      "denomination": 0,
+      "timestamp": "2026-08-30T13:47:56.929Z",
+      "transaction_type": "product_order",
+      "description": "POS sale POS-20260830-000000 items 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 3,
+      "denomination": 0,
+      "timestamp": "2026-08-30T13:53:24.081Z",
+      "transaction_type": "product_order",
+      "description": "test-m-1"
+    },
+    {
+      "unit_id": null,
+      "amount": 30,
+      "denomination": 0,
+      "timestamp": "2026-08-30T13:53:53.276Z",
+      "transaction_type": "product_order",
+      "description": "Moby-s-3"
+    },
+    {
+      "unit_id": null,
+      "amount": 20,
+      "denomination": 0,
+      "timestamp": "2026-08-30T13:58:13.529Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: SKU=SNACK-0002, Name=Moby, Size=s, Quantity=2"
+    },
+    {
+      "unit_id": null,
+      "amount": 2,
+      "denomination": 0,
+      "timestamp": "2026-08-30T14:04:40.998Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: SKU-01, test, s, 1, Notes: test notes"
+    },
+    {
+      "unit_id": null,
+      "amount": 3,
+      "denomination": 1,
+      "timestamp": "2026-08-30T14:07:54.992Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: SKU2, test, m, 1, Notes: test 3"
+    },
+    {
+      "unit_id": 10,
+      "amount": 15,
+      "denomination": 15,
+      "timestamp": "2026-08-30T14:11:44.726Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 6,
+      "amount": 30,
+      "denomination": 30,
+      "timestamp": "2026-08-30T14:12:11.854Z",
+      "transaction_type": "admin_add",
+      "description": "test"
+    },
+    {
+      "unit_id": null,
+      "amount": 22,
+      "denomination": 1,
+      "timestamp": "2026-08-30T14:21:49.360Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1"
+    },
+    {
+      "unit_id": 9,
+      "amount": 10,
+      "denomination": 20.7167,
+      "timestamp": "2026-08-30T14:32:29.538Z",
+      "transaction_type": "open_time",
+      "description": null
+    },
+    {
+      "unit_id": null,
+      "amount": 20,
+      "denomination": 1,
+      "timestamp": "2026-08-30T14:59:14.911Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: SNACK-0001, Piatos, s, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 4,
+      "denomination": 1,
+      "timestamp": "2026-08-30T15:12:22.507Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: ICE-0001, Ice Pop, N/A, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 81,
+      "denomination": 8,
+      "timestamp": "2026-08-30T15:49:58.466Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 2 | SKU3, test3, l, 1 | SNACK-0001, Piatos, s, 1 | SNACK-0002, Moby, s, 1 | ICE-0002, Cola, N/A, 2 | ICE-0001, Ice Pop, N/A, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 52,
+      "denomination": 3,
+      "timestamp": "2026-08-30T15:55:24.197Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: SNACK-0002, Moby, s, 1 | SNACK-0001, Piatos, s, 1 | BEV-0001, Coke, Sakto, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 32,
+      "denomination": 3,
+      "timestamp": "2026-08-30T15:59:28.913Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1 | ICE-0002, Cola, N/A, 1 | SNACK-0002, Moby, s, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 26,
+      "denomination": 2,
+      "timestamp": "2026-08-30T16:07:46.782Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1 | ICE-0001, Ice Pop, N/A, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 26,
+      "denomination": 3,
+      "timestamp": "2026-08-31T04:17:28.905Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1 | ICE-0001, Ice Pop, N/A, 1 | ICE-0002, Cola, N/A, 1"
+    },
+    {
+      "unit_id": 9,
+      "amount": 30,
+      "denomination": 30,
+      "timestamp": "2026-08-31T04:25:31.509Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": -15,
+      "denomination": -15,
+      "timestamp": "2026-08-31T04:25:36.440Z",
+      "transaction_type": "admin_deduct",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": 60,
+      "denomination": 60,
+      "timestamp": "2026-08-31T04:25:41.044Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": 9,
+      "amount": -180,
+      "denomination": -180,
+      "timestamp": "2026-08-31T04:25:46.321Z",
+      "transaction_type": "admin_deduct",
+      "description": null
+    },
+    {
+      "unit_id": 1,
+      "amount": 180,
+      "denomination": 180,
+      "timestamp": "2026-08-31T04:28:28.445Z",
+      "transaction_type": "admin_add",
+      "description": null
+    },
+    {
+      "unit_id": null,
+      "amount": 22,
+      "denomination": 1,
+      "timestamp": "2026-08-31T04:29:23.987Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 1"
+    },
+    {
+      "unit_id": null,
+      "amount": 72,
+      "denomination": 6,
+      "timestamp": "2026-08-31T04:41:10.745Z",
+      "transaction_type": "product_order",
+      "description": "POS Sale: BEV-0001, Coke, Sakto, 2 | ICE-0002, Cola, N/A, 1 | ICE-0001, Ice Pop, N/A, 2 | SNACK-0001, Piatos, s, 1, Notes: test yuuiyi"
+    }
+  ],
+  "transaction_count": 34,
+  "period": {
+    "start": "2026-07-31T16:00:00.000Z",
+    "end": "2026-08-31T15:59:59.999Z",
+    "actual_start": "2026-08-30T11:39:16.507Z",
+    "actual_end": "2026-08-31T04:41:10.745Z",
+    "filter_applied": true
+  },
+  "mode": {
+    "report_only": true,
+    "clear_data": false
+  }
+}

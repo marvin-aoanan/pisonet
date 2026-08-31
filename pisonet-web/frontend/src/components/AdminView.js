@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Tabs,
@@ -8,6 +8,9 @@ import {
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
+  Computer as ComputerIcon,
+  Storefront as StorefrontIcon,
+  Inventory2 as InventoryIcon,
   Print as PrintIcon,
   ReceiptLong as TransactionIcon,
   BarChart as ReportsIcon,
@@ -16,11 +19,28 @@ import {
 } from '@mui/icons-material';
 
 import AdminDashboard from './AdminDashboard';
+import AdminPcRental from './AdminPcRental';
 import PrintServices from './PrintServices';
 import AdminTransactions from './AdminTransactions';
 import AdminReports from './AdminReports';
 import AdminCoinsOut from './AdminCoinsOut';
 import AdminSettings from './AdminSettings';
+import AdminProducts from './AdminProducts';
+import StoreView from './StoreView';
+
+const STORE_SUBTAB_STORAGE_KEY = 'admin.storeSubtab';
+
+function getInitialStoreSubtab() {
+  if (typeof window === 'undefined') {
+    return 0;
+  }
+
+  const storedValue = window.localStorage.getItem(STORE_SUBTAB_STORAGE_KEY);
+  if (storedValue === '1') {
+    return 1;
+  }
+  return 0;
+}
 
 function TabPanel(props) {
   const { children, value, index, isMobile, ...other } = props;
@@ -42,13 +62,25 @@ function TabPanel(props) {
   );
 }
 
-function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword, onAdminPasswordChanged }) {
+function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOpenTime, onStopOpenTime, onPauseTimer, onResumeTimer, adminPassword, onAdminPasswordChanged, onPosSaleRecorded }) {
   const [value, setValue] = useState(0);
+  const [storeTab, setStoreTab] = useState(getInitialStoreSubtab);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORE_SUBTAB_STORAGE_KEY, String(storeTab));
+  }, [storeTab]);
+
   const handleChange = (event, newValue) => {
     setValue(newValue);
+  };
+
+  const handleStoreTabChange = (event, newValue) => {
+    setStoreTab(newValue);
   };
 
   return (
@@ -64,6 +96,8 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           sx={{ minHeight: isMobile ? 44 : 48 }}
         >
           <Tab icon={<DashboardIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Dashboard" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<ComputerIcon />} iconPosition={isMobile ? 'top' : 'start'} label="PC Rental" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<StorefrontIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Store" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<PrintIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Print Services" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<TransactionIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Transactions" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<ReportsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Reports" sx={{ minHeight: isMobile ? 44 : 48 }} />
@@ -87,18 +121,49 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
         />
       </TabPanel>
       <TabPanel value={value} index={1} isMobile={isMobile}>
-        <PrintServices />
+        <AdminPcRental
+          units={units}
+          onControl={onControl}
+          onTestWake={onTestWake}
+          onAddTime={onAddTime}
+          onOpenTime={onOpenTime}
+          onStopOpenTime={onStopOpenTime}
+          onPauseTimer={onPauseTimer}
+          onResumeTimer={onResumeTimer}
+          adminPassword={adminPassword}
+        />
       </TabPanel>
       <TabPanel value={value} index={2} isMobile={isMobile}>
-        <AdminTransactions adminPassword={adminPassword} />
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tabs
+            value={storeTab}
+            onChange={handleStoreTabChange}
+            aria-label="store subtabs"
+            variant={isMobile ? 'fullWidth' : 'standard'}
+          >
+            <Tab label="POS" />
+            <Tab icon={<InventoryIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Products" />
+          </Tabs>
+        </Box>
+        {storeTab === 0 ? (
+          <StoreView adminPassword={adminPassword} onSaleRecorded={onPosSaleRecorded} />
+        ) : (
+          <AdminProducts adminPassword={adminPassword} />
+        )}
       </TabPanel>
       <TabPanel value={value} index={3} isMobile={isMobile}>
-        <AdminReports />
+        <PrintServices />
       </TabPanel>
       <TabPanel value={value} index={4} isMobile={isMobile}>
-        <AdminCoinsOut adminPassword={adminPassword} />
+        <AdminTransactions adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={5} isMobile={isMobile}>
+        <AdminReports adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={6} isMobile={isMobile}>
+        <AdminCoinsOut adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={7} isMobile={isMobile}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

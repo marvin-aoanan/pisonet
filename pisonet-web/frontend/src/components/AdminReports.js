@@ -155,13 +155,15 @@ function formatHoursWithPadding(hoursValue) {
   return `${String(whole).padStart(2, '0')}.${decimal}h`;
 }
 
-function AdminReports() {
+function AdminReports({ adminPassword }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dailyByUnitRows, setDailyByUnitRows] = useState([]);
   const [electricityRows, setElectricityRows] = useState([]);
   const [electricityByUnitRows, setElectricityByUnitRows] = useState([]);
+  const [productDailyRows, setProductDailyRows] = useState([]);
+  const [productReportError, setProductReportError] = useState('');
   const [period, setPeriod] = useState('daily');
 
   useEffect(() => {
@@ -179,6 +181,29 @@ function AdminReports() {
 
     fetchRevenueByUnit();
   }, []);
+
+  useEffect(() => {
+    const fetchProductSalesReport = async () => {
+      if (!adminPassword) {
+        setProductDailyRows([]);
+        return;
+      }
+
+      try {
+        const response = await axios.get(`${API_URL}/pos-sales/reports/daily?days=3650`, {
+          headers: { 'x-admin-password': adminPassword }
+        });
+        setProductDailyRows(response.data?.data || []);
+        setProductReportError('');
+      } catch (err) {
+        console.error('Error fetching store product sales report:', err);
+        setProductDailyRows([]);
+        setProductReportError('Failed to load store product sales report data.');
+      }
+    };
+
+    fetchProductSalesReport();
+  }, [adminPassword]);
 
   useEffect(() => {
     const fetchDailyRevenueByUnit = async () => {
@@ -396,13 +421,71 @@ function AdminReports() {
 
   const activeWindowLabel = useMemo(() => getActiveWindowLabel(period), [period]);
 
+  const productSalesChartData = useMemo(() => {
+    if (!productDailyRows.length) {
+      return [];
+    }
+
+    const normalized = productDailyRows
+      .map((row) => ({
+        date: row.date,
+        total_sales: Number(row.total_sales || 0),
+        order_count: Number(row.order_count || 0),
+        items_sold: Number(row.items_sold || 0),
+      }))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (period === 'daily') {
+      return normalized.map((row) => ({
+        label: row.date,
+        total_sales: row.total_sales,
+        order_count: row.order_count,
+        items_sold: row.items_sold,
+      }));
+    }
+
+    const buckets = new Map();
+    normalized.forEach((row) => {
+      const dateObj = new Date(row.date);
+      if (Number.isNaN(dateObj.getTime())) return;
+
+      const key = getPeriodBucketKey(dateObj, period);
+      const existing = buckets.get(key) || { total_sales: 0, order_count: 0, items_sold: 0 };
+      buckets.set(key, {
+        total_sales: existing.total_sales + row.total_sales,
+        order_count: existing.order_count + row.order_count,
+        items_sold: existing.items_sold + row.items_sold,
+      });
+    });
+
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([label, values]) => ({
+        label,
+        total_sales: values.total_sales,
+        order_count: values.order_count,
+        items_sold: values.items_sold,
+      }));
+  }, [productDailyRows, period]);
+
+  const productSalesTotals = useMemo(() => {
+    return productSalesChartData.reduce(
+      (acc, row) => ({
+        totalSales: acc.totalSales + Number(row.total_sales || 0),
+        totalOrders: acc.totalOrders + Number(row.order_count || 0),
+        totalItems: acc.totalItems + Number(row.items_sold || 0),
+      }),
+      { totalSales: 0, totalOrders: 0, totalItems: 0 }
+    );
+  }, [productSalesChartData]);
+
   return (
     <Box sx={{ width: '100%' }}>
       <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
         Reports
       </Typography>
 
-      <Paper sx={{ p: 3 }} elevation={2}>
+      <Paper sx={{ p: 3, mt: 3 }} elevation={2}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="subtitle1">
             PC Sales and Hours Over Time ({activeWindowLabel})
@@ -473,7 +556,65 @@ function AdminReports() {
         )}
       </Paper>
 
-      <Paper sx={{ p: 3 }} elevation={2}>
+      <Paper sx={{ p: 3, mt: 3, }} elevation={2}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Typography variant="subtitle1">
+            Store Product Sales ({period.charAt(0).toUpperCase() + period.slice(1)})
+          </Typography>
+          <Box sx={{ textAlign: 'right' }}>
+            <Typography variant="body2" color="text.secondary">
+              Total Sales: ₱{productSalesTotals.totalSales.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Orders: {productSalesTotals.totalOrders.toLocaleString('en-US')} | Items Sold: {productSalesTotals.totalItems.toLocaleString('en-US')}
+            </Typography>
+          </Box>
+        </Box>
+
+        {productReportError && <Alert severity="error" sx={{ mb: 2 }}>{productReportError}</Alert>}
+
+        {!productReportError && productSalesChartData.length === 0 && (
+          <Alert severity="info">No Store product sales data available yet.</Alert>
+        )}
+
+        {!productReportError && productSalesChartData.length > 0 && (
+          <LineChart
+            dataset={productSalesChartData}
+            xAxis={[{ scaleType: 'point', dataKey: 'label' }]}
+            yAxis={[
+              { id: 'salesAxis', label: 'Sales (₱)' },
+              { id: 'countAxis', label: 'Count', position: 'right' },
+            ]}
+            series={[
+              {
+                dataKey: 'total_sales',
+                label: 'Sales (₱)',
+                yAxisId: 'salesAxis',
+                color: '#2e7d32',
+                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'order_count',
+                label: 'Orders',
+                yAxisId: 'countAxis',
+                color: '#1565c0',
+                valueFormatter: (value) => `${Number(value || 0).toFixed(0)} order(s)`,
+              },
+              {
+                dataKey: 'items_sold',
+                label: 'Items Sold',
+                yAxisId: 'countAxis',
+                color: '#ef6c00',
+                valueFormatter: (value) => `${Number(value || 0).toFixed(0)} item(s)`,
+              },
+            ]}
+            height={360}
+            margin={{ bottom: 36 }}
+          />
+        )}
+      </Paper>
+
+      <Paper sx={{ p: 3, mt: 3 }} elevation={2}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
           <Typography variant="subtitle1">
             PC vs Sales and Hours
