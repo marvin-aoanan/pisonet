@@ -124,6 +124,7 @@ function AdminPcRental({
   const [timeDialogDescription, setTimeDialogDescription] = useState('');
   const [sessionRevenueByUnit, setSessionRevenueByUnit] = useState({});
   const [selectedUnitIds, setSelectedUnitIds] = useState([]);
+  const [flatRateSettings, setFlatRateSettings] = useState(getFlatRateSettings());
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -321,6 +322,22 @@ function AdminPcRental({
   }, [units]);
 
   useEffect(() => {
+    const fetchFlatRateSettings = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/settings`, {
+          headers: adminPassword ? { 'x-admin-password': adminPassword } : undefined,
+        });
+        setFlatRateSettings(getFlatRateSettings(response?.data || {}));
+      } catch (err) {
+        console.error('Error fetching flat-rate settings for quick select:', err);
+        setFlatRateSettings(getFlatRateSettings());
+      }
+    };
+
+    fetchFlatRateSettings();
+  }, [adminPassword]);
+
+  useEffect(() => {
     const fetchSessionRevenueByUnit = async () => {
       try {
         const activeCountdownUnits = (units || []).filter((unit) => Number(unit.open_time || 0) !== 1 && Number(unit.remaining_seconds || 0) > 0);
@@ -368,6 +385,25 @@ function AdminPcRental({
 
     fetchSessionRevenueByUnit();
   }, [units, adminPassword]);
+
+  const quickSelectOptions = [
+    { minutes: flatRateSettings.tier1Minutes, price: flatRateSettings.tier1Price },
+    { minutes: flatRateSettings.tier2Minutes, price: flatRateSettings.tier2Price },
+    { minutes: flatRateSettings.tier3Minutes, price: flatRateSettings.tier3Price },
+    { minutes: flatRateSettings.tier4Minutes, price: flatRateSettings.tier4Price },
+  ];
+
+  const handleQuickSelect = (minutes) => {
+    setTimeDialogAmount((currentValue) => {
+      const currentMinutes = Number.parseInt(currentValue, 10);
+      const baseMinutes = Number.isFinite(currentMinutes) && currentMinutes > 0 ? currentMinutes : 0;
+      return String(baseMinutes + minutes);
+    });
+  };
+
+  const accumulatedMinutes = Number.parseInt(timeDialogAmount, 10);
+  const hasAccumulatedMinutes = Number.isFinite(accumulatedMinutes) && accumulatedMinutes > 0;
+  const accumulatedAmount = hasAccumulatedMinutes ? calculateFlatRateAmountFromMinutes(accumulatedMinutes, flatRateSettings) : 0;
 
   return (
     <Box>
@@ -726,6 +762,31 @@ function AdminPcRental({
             inputProps={{ min: '1', step: '1' }}
             placeholder="Enter number of minutes"
           />
+          <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary">
+              Minutes: {hasAccumulatedMinutes ? accumulatedMinutes : 0}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  color: '#f57c00',
+                  lineHeight: 1.2,
+                }}
+              >
+                Amount: ₱{accumulatedAmount.toFixed(2)}
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                onClick={() => setTimeDialogAmount('')}
+              >
+                Clear
+              </Button>
+            </Box>
+          </Box>
           <TextField
             fullWidth
             label="Description (optional)"
@@ -737,12 +798,16 @@ function AdminPcRental({
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>Quick Select:</Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Button size="small" variant={timeDialogAmount === '15' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('15')}>15m</Button>
-              <Button size="small" variant={timeDialogAmount === '30' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('30')}>30m</Button>
-              <Button size="small" variant={timeDialogAmount === '60' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('60')}>1hr</Button>
-              <Button size="small" variant={timeDialogAmount === '75' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('75')}>75m</Button>
-              <Button size="small" variant={timeDialogAmount === '120' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('120')}>2hr</Button>
-              <Button size="small" variant={timeDialogAmount === '180' ? 'contained' : 'outlined'} onClick={() => setTimeDialogAmount('180')}>3hr</Button>
+              {quickSelectOptions.map(({ minutes, price }) => (
+                <Button
+                  key={`${minutes}-${price}`}
+                  size="small"
+                  variant={timeDialogAmount === String(minutes) ? 'contained' : 'outlined'}
+                  onClick={() => handleQuickSelect(minutes)}
+                >
+                  {`${minutes}M = ₱${price}`}
+                </Button>
+              ))}
             </Box>
           </Box>
         </DialogContent>
