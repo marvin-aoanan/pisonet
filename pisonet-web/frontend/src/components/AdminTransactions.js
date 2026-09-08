@@ -220,6 +220,16 @@ function AdminTransactions({ adminPassword }) {
         </Typography>
       )
     },
+    {
+      field: 'sold_by',
+      headerName: 'Sold By',
+      width: 150,
+      renderCell: (params) => (
+        <Typography variant="body2" color="text.secondary" noWrap>
+          {params.value || '-'}
+        </Typography>
+      )
+    },
     { 
       field: 'amount', 
       headerName: 'Amount', 
@@ -244,8 +254,11 @@ function AdminTransactions({ adminPassword }) {
         }
         return (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '100%', width: '100%' }}>
-            <Typography color="success.main" fontWeight="bold">
-              +₱{Number(params.value).toFixed(2)}
+            <Typography
+              color={Number(params.value) < 0 ? 'warning.main' : 'success.main'}
+              fontWeight="bold"
+            >
+              {Number(params.value) < 0 ? '-' : '+'}₱{Math.abs(Number(params.value)).toFixed(2)}
             </Typography>
           </Box>
         );

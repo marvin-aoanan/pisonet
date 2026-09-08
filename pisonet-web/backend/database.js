@@ -192,6 +192,62 @@ function normalizeParams(params, cb) {
   return { params, cb };
 }
 
+function migrateSalesTablesForDeductionSupport() {
+  const salesSqlRow = db.get("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'product_sales'");
+  const itemsSqlRow = db.get("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'product_sale_items'");
+
+  if (salesSqlRow && typeof salesSqlRow.sql === 'string' && salesSqlRow.sql.includes('CHECK (subtotal >= 0)')) {
+    db.run('BEGIN TRANSACTION');
+    db.run('ALTER TABLE product_sales RENAME TO product_sales_old');
+    db.run(`
+      CREATE TABLE product_sales (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT NOT NULL UNIQUE,
+        subtotal REAL NOT NULL,
+        payment_method TEXT NOT NULL,
+        notes TEXT,
+        sold_by TEXT NOT NULL,
+        sold_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    db.run(`
+      INSERT INTO product_sales (id, reference_no, subtotal, payment_method, notes, sold_by, sold_at, created_at)
+      SELECT id, reference_no, subtotal, payment_method, notes, sold_by, sold_at, created_at
+      FROM product_sales_old
+    `);
+    db.run('DROP TABLE product_sales_old');
+    db.run('COMMIT');
+  }
+
+  if (itemsSqlRow && typeof itemsSqlRow.sql === 'string' && itemsSqlRow.sql.includes('CHECK (line_total >= 0)')) {
+    db.run('BEGIN TRANSACTION');
+    db.run('ALTER TABLE product_sale_items RENAME TO product_sale_items_old');
+    db.run(`
+      CREATE TABLE product_sale_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sale_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0),
+        unit_base_price REAL NOT NULL CHECK (unit_base_price >= 0),
+        unit_markup_price REAL NOT NULL CHECK (unit_markup_price >= 0),
+        unit_final_price REAL NOT NULL CHECK (unit_final_price >= 0),
+        line_total REAL NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sale_id) REFERENCES product_sales(id),
+        FOREIGN KEY (product_id) REFERENCES products(id)
+      )
+    `);
+    db.run(`
+      INSERT INTO product_sale_items (id, sale_id, product_id, quantity, unit_base_price, unit_markup_price, unit_final_price, line_total, created_at)
+      SELECT id, sale_id, product_id, quantity, unit_base_price, unit_markup_price, unit_final_price, line_total, created_at
+      FROM product_sale_items_old
+    `);
+    db.run('DROP TABLE product_sale_items_old');
+    db.run('COMMIT');
+  }
+}
+
 function getLastInsertId() {
   const stmt = sqlDb.prepare('SELECT last_insert_rowid() as id');
   const row = stmt.getAsObject();
@@ -202,13 +258,16 @@ function getLastInsertId() {
 function migrateTransactionsUnitIdToNullable() {
   const columns = db.all('PRAGMA table_info(transactions)');
   const unitIdColumn = columns.find((column) => column.name === 'unit_id');
+  const hasSoldByColumn = columns.some((column) => column.name === 'sold_by');
 
-  if (!unitIdColumn || Number(unitIdColumn.notnull) === 0) {
+  if ((!unitIdColumn || Number(unitIdColumn.notnull) === 0) && hasSoldByColumn) {
     return;
   }
 
   const existingRows = db.all(
-    'SELECT id, unit_id, amount, denomination, timestamp, transaction_type, session_id FROM transactions ORDER BY id ASC'
+    `SELECT id, unit_id, amount, denomination, timestamp, transaction_type, session_id, description${hasSoldByColumn ? ', sold_by' : ''}
+     FROM transactions
+     ORDER BY id ASC`
   );
 
   db.run('BEGIN TRANSACTION');
@@ -223,6 +282,7 @@ function migrateTransactionsUnitIdToNullable() {
       transaction_type TEXT DEFAULT 'coin',
       session_id INTEGER,
       description TEXT,
+      sold_by TEXT,
       FOREIGN KEY (unit_id) REFERENCES units(id),
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     )
@@ -230,8 +290,8 @@ function migrateTransactionsUnitIdToNullable() {
 
   existingRows.forEach((row) => {
     db.run(
-      'INSERT INTO transactions (id, unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [row.id, row.unit_id, row.amount, row.denomination, row.timestamp, row.transaction_type, row.session_id, null]
+      'INSERT INTO transactions (id, unit_id, amount, denomination, timestamp, transaction_type, session_id, description, sold_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [row.id, row.unit_id, row.amount, row.denomination, row.timestamp, row.transaction_type, row.session_id, row.description || null, hasSoldByColumn ? row.sold_by || null : null]
     );
   });
 
@@ -471,6 +531,7 @@ function initializeDatabase() {
         transaction_type TEXT DEFAULT 'coin',
         session_id INTEGER,
         description TEXT,
+        sold_by TEXT,
         FOREIGN KEY (unit_id) REFERENCES units(id),
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       )
@@ -479,6 +540,12 @@ function initializeDatabase() {
     db.run('ALTER TABLE transactions ADD COLUMN description TEXT', (err) => {
       if (err && !String(err.message || err).includes('duplicate column name')) {
         console.error('Error adding transactions.description column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE transactions ADD COLUMN sold_by TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.sold_by column:', err);
       }
     });
 
@@ -555,7 +622,7 @@ function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS product_sales (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         reference_no TEXT NOT NULL UNIQUE,
-        subtotal REAL NOT NULL CHECK (subtotal >= 0),
+        subtotal REAL NOT NULL,
         payment_method TEXT NOT NULL,
         notes TEXT,
         sold_by TEXT NOT NULL,
@@ -573,12 +640,14 @@ function initializeDatabase() {
         unit_base_price REAL NOT NULL CHECK (unit_base_price >= 0),
         unit_markup_price REAL NOT NULL CHECK (unit_markup_price >= 0),
         unit_final_price REAL NOT NULL CHECK (unit_final_price >= 0),
-        line_total REAL NOT NULL CHECK (line_total >= 0),
+        line_total REAL NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (sale_id) REFERENCES product_sales(id),
         FOREIGN KEY (product_id) REFERENCES products(id)
       )
     `);
+
+    migrateSalesTablesForDeductionSupport();
 
     db.run(`
       CREATE TABLE IF NOT EXISTS product_inventory_logs (

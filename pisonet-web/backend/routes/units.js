@@ -114,7 +114,8 @@ router.get('/', (req, res) => {
 
     db.all(`
       SELECT u.*, 
-             (SELECT COUNT(*) FROM sessions WHERE unit_id = u.id AND status = 'active') as active_sessions
+             (SELECT COUNT(*) FROM sessions WHERE unit_id = u.id AND status = 'active') as active_sessions,
+             (SELECT COALESCE(SUM(COALESCE(duration_seconds, 0)), 0) FROM sessions WHERE unit_id = u.id) as total_used_seconds
       FROM units u 
       ORDER BY u.id
     `, [], (err, rows) => {
@@ -149,7 +150,8 @@ router.get('/:id', (req, res) => {
   db.get(`
     SELECT u.*, 
            (SELECT COUNT(*) FROM sessions WHERE unit_id = u.id AND status = 'active') as active_sessions,
-           (SELECT SUM(amount) FROM transactions WHERE unit_id = u.id) as total_transactions
+           (SELECT SUM(amount) FROM transactions WHERE unit_id = u.id) as total_transactions,
+           (SELECT COALESCE(SUM(COALESCE(duration_seconds, 0)), 0) FROM sessions WHERE unit_id = u.id) as total_used_seconds
     FROM units u 
     WHERE u.id = ?
   `, [unitId], (err, row) => {

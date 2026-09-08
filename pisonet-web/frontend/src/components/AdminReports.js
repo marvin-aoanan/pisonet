@@ -94,6 +94,29 @@ function startOfWeek(date) {
   return value;
 }
 
+function getLocalDateKey(date) {
+  const value = new Date(date);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function getCurrentWeekDateKeys() {
+  const weekStart = startOfWeek(new Date());
+  return Array.from({ length: 7 }, (_, index) => {
+    const value = new Date(weekStart);
+    value.setDate(weekStart.getDate() + index);
+    return getLocalDateKey(value);
+  });
+}
+
+function padDailyWeekRows(rows, createEmptyRow) {
+  const rowsByLabel = new Map(rows.map((row) => [row.label, row]));
+  return getCurrentWeekDateKeys().map((label) => ({
+    label,
+    ...createEmptyRow(label),
+    ...(rowsByLabel.get(label) || {}),
+  }));
+}
+
 function isWithinSelectedWindow(dateValue, period) {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) {
@@ -121,10 +144,11 @@ function isWithinSelectedWindow(dateValue, period) {
 }
 
 function getActiveWindowLabel(period) {
-  if (period === 'daily') return 'This Week';
-  if (period === 'weekly') return 'This Month';
-  if (period === 'monthly' || period === 'quarterly') return 'This Year';
-  return 'All Time';
+  if (period === 'daily') return 'Daily';
+  if (period === 'weekly') return 'Weekly';
+  if (period === 'monthly') return 'Monthly';
+  if (period === 'quarterly') return 'Quarterly';
+  return 'Yearly';
 }
 
 function getPeriodBucketKey(dateObj, period) {
@@ -164,6 +188,9 @@ function AdminReports({ adminPassword }) {
   const [electricityByUnitRows, setElectricityByUnitRows] = useState([]);
   const [productDailyRows, setProductDailyRows] = useState([]);
   const [productReportError, setProductReportError] = useState('');
+  const [printDailyRows, setPrintDailyRows] = useState([]);
+  const [printReportError, setPrintReportError] = useState('');
+  const [salesTimelineRows, setSalesTimelineRows] = useState([]);
   const [period, setPeriod] = useState('daily');
 
   useEffect(() => {
@@ -180,6 +207,20 @@ function AdminReports({ adminPassword }) {
     };
 
     fetchRevenueByUnit();
+  }, []);
+
+  useEffect(() => {
+    const fetchSalesTimeline = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/transactions/revenue/daily-breakdown?days=365`);
+        setSalesTimelineRows(response.data?.data || []);
+      } catch (err) {
+        console.error('Error fetching sales timeline:', err);
+        setSalesTimelineRows([]);
+      }
+    };
+
+    fetchSalesTimeline();
   }, []);
 
   useEffect(() => {
@@ -217,6 +258,22 @@ function AdminReports({ adminPassword }) {
     };
 
     fetchDailyRevenueByUnit();
+  }, []);
+
+  useEffect(() => {
+    const fetchPrintSalesReport = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/transactions/revenue/print-daily-breakdown?days=3650`);
+        setPrintDailyRows(response.data?.data || []);
+        setPrintReportError('');
+      } catch (err) {
+        console.error('Error fetching print sales report:', err);
+        setPrintDailyRows([]);
+        setPrintReportError('Failed to load print sales report data.');
+      }
+    };
+
+    fetchPrintSalesReport();
   }, []);
 
   useEffect(() => {
@@ -270,10 +327,13 @@ function AdminReports({ adminPassword }) {
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     if (period === 'daily') {
-      return normalized.map((row) => ({
+      return padDailyWeekRows(normalized.map((row) => ({
         label: row.date,
         estimated_kwh: row.estimated_kwh,
         estimated_cost: row.estimated_cost,
+      })), () => ({
+        estimated_kwh: 0,
+        estimated_cost: 0,
       }));
     }
 
@@ -346,7 +406,21 @@ function AdminReports({ adminPassword }) {
         data[`${row.pc} Revenue`] = row.revenue;
         data[`${row.pc} Hours`] = row.hours;
       });
-      return Array.from(buckets.values());
+
+      const pcs = Array.from(new Set(normalized.map((row) => row.pc))).sort((a, b) => {
+        const numA = parseInt(a.replace(/\D/g, ''), 10);
+        const numB = parseInt(b.replace(/\D/g, ''), 10);
+        return (isNaN(numA) ? 0 : numA) - (isNaN(numB) ? 0 : numB);
+      });
+
+      return padDailyWeekRows(Array.from(buckets.values()), () => {
+        const emptyRow = {};
+        pcs.forEach((pc) => {
+          emptyRow[`${pc} Revenue`] = 0;
+          emptyRow[`${pc} Hours`] = 0;
+        });
+        return emptyRow;
+      });
     }
 
     const buckets = new Map();
@@ -430,17 +504,49 @@ function AdminReports({ adminPassword }) {
       .map((row) => ({
         date: row.date,
         total_sales: Number(row.total_sales || 0),
+        gross_sales: Number((row.gross_sales ?? row.total_sales) || 0),
+        net_store_sales: Number((row.net_store_sales ?? row.total_sales) || 0),
+        total_profit: Number(row.total_profit || 0),
         order_count: Number(row.order_count || 0),
         items_sold: Number(row.items_sold || 0),
+        sales_quantity: Number(row.sales_quantity ?? row.items_sold ?? 0),
+        total_returns: -Math.abs(Number(row.total_returns || 0)),
+        total_return_quantity: Number(row.total_return_quantity || 0),
+        total_internal_usage: -Math.abs(Number(row.total_internal_usage || 0)),
+        total_internal_usage_quantity: Number(row.total_internal_usage_quantity || 0),
       }))
+      .filter((row) => {
+        const dateObj = new Date(`${row.date}T00:00:00`);
+        return !Number.isNaN(dateObj.getTime()) && isWithinSelectedWindow(dateObj, period);
+      })
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
     if (period === 'daily') {
-      return normalized.map((row) => ({
+      return padDailyWeekRows(normalized.map((row) => ({
         label: row.date,
         total_sales: row.total_sales,
+        gross_sales: row.gross_sales,
+        net_store_sales: row.net_store_sales,
+        total_profit: row.total_profit,
         order_count: row.order_count,
         items_sold: row.items_sold,
+        sales_quantity: row.sales_quantity,
+        total_returns: row.total_returns,
+        total_return_quantity: row.total_return_quantity,
+        total_internal_usage: row.total_internal_usage,
+        total_internal_usage_quantity: row.total_internal_usage_quantity,
+      })), () => ({
+        total_sales: 0,
+        gross_sales: 0,
+        net_store_sales: 0,
+        total_profit: 0,
+        order_count: 0,
+        items_sold: 0,
+        sales_quantity: 0,
+        total_returns: 0,
+        total_return_quantity: 0,
+        total_internal_usage: 0,
+        total_internal_usage_quantity: 0,
       }));
     }
 
@@ -450,11 +556,19 @@ function AdminReports({ adminPassword }) {
       if (Number.isNaN(dateObj.getTime())) return;
 
       const key = getPeriodBucketKey(dateObj, period);
-      const existing = buckets.get(key) || { total_sales: 0, order_count: 0, items_sold: 0 };
+      const existing = buckets.get(key) || { total_sales: 0, gross_sales: 0, net_store_sales: 0, total_profit: 0, order_count: 0, items_sold: 0, sales_quantity: 0, total_returns: 0, total_return_quantity: 0, total_internal_usage: 0, total_internal_usage_quantity: 0 };
       buckets.set(key, {
         total_sales: existing.total_sales + row.total_sales,
+        gross_sales: existing.gross_sales + row.gross_sales,
+        net_store_sales: existing.net_store_sales + row.net_store_sales,
+        total_profit: existing.total_profit + row.total_profit,
         order_count: existing.order_count + row.order_count,
         items_sold: existing.items_sold + row.items_sold,
+        sales_quantity: existing.sales_quantity + row.sales_quantity,
+        total_returns: existing.total_returns + row.total_returns,
+        total_return_quantity: existing.total_return_quantity + row.total_return_quantity,
+        total_internal_usage: existing.total_internal_usage + row.total_internal_usage,
+        total_internal_usage_quantity: existing.total_internal_usage_quantity + row.total_internal_usage_quantity,
       });
     });
 
@@ -463,21 +577,180 @@ function AdminReports({ adminPassword }) {
       .map(([label, values]) => ({
         label,
         total_sales: values.total_sales,
+        gross_sales: values.gross_sales,
+        net_store_sales: values.net_store_sales,
+        total_profit: values.total_profit,
         order_count: values.order_count,
         items_sold: values.items_sold,
+        sales_quantity: values.sales_quantity,
+        total_returns: values.total_returns,
+        total_return_quantity: values.total_return_quantity,
+        total_internal_usage: values.total_internal_usage,
+        total_internal_usage_quantity: values.total_internal_usage_quantity,
       }));
   }, [productDailyRows, period]);
 
   const productSalesTotals = useMemo(() => {
-    return productSalesChartData.reduce(
+    const totals = productSalesChartData.reduce(
       (acc, row) => ({
         totalSales: acc.totalSales + Number(row.total_sales || 0),
+        grossSales: acc.grossSales + Number((row.gross_sales ?? row.total_sales) || 0),
+        netStoreSales: acc.netStoreSales + Number((row.net_store_sales ?? row.total_sales) || 0),
+        totalProfit: acc.totalProfit + Number(row.total_profit || 0),
         totalOrders: acc.totalOrders + Number(row.order_count || 0),
         totalItems: acc.totalItems + Number(row.items_sold || 0),
+        totalReturns: acc.totalReturns + Number(row.total_returns || 0),
+        totalInternalUsage: acc.totalInternalUsage + Number(row.total_internal_usage || 0),
       }),
-      { totalSales: 0, totalOrders: 0, totalItems: 0 }
+      { totalSales: 0, grossSales: 0, netStoreSales: 0, totalProfit: 0, totalOrders: 0, totalItems: 0, totalReturns: 0, totalInternalUsage: 0 }
     );
+
+    const grossSales = Number(totals.grossSales || 0);
+    const returns = Math.abs(Number(totals.totalReturns || 0));
+    const internalUsage = Math.abs(Number(totals.totalInternalUsage || 0));
+    const netStoreSales = Number(totals.netStoreSales || 0);
+
+    return {
+      ...totals,
+      grossSales,
+      returns,
+      internalUsage,
+      netStoreSales,
+    };
   }, [productSalesChartData]);
+
+  const salesBreakdownDataset = useMemo(() => {
+    if (!salesTimelineRows.length) {
+      return [];
+    }
+
+    const normalized = salesTimelineRows
+      .map((row) => ({
+        date: row.date,
+        pcRental: Number(row.pc_rental_sales || 0),
+        store: Number(row.store_sales || 0),
+        print: Number(row.print_sales || 0),
+      }))
+      .filter((row) => {
+        const dateObj = new Date(`${row.date}T00:00:00`);
+        return !Number.isNaN(dateObj.getTime()) && isWithinSelectedWindow(dateObj, period);
+      });
+
+    if (period === 'daily') {
+      return padDailyWeekRows(normalized.map((row) => ({
+        label: row.date,
+        pcRental: row.pcRental,
+        store: row.store,
+        print: row.print,
+        totalSales: row.pcRental + row.store + row.print,
+      })), () => ({
+        pcRental: 0,
+        store: 0,
+        print: 0,
+        totalSales: 0,
+      }));
+    }
+
+    const buckets = new Map();
+    normalized.forEach((row) => {
+      const dateObj = new Date(`${row.date}T00:00:00`);
+      const key = getPeriodBucketKey(dateObj, period);
+      const existing = buckets.get(key) || { label: key, pcRental: 0, store: 0, print: 0, totalSales: 0 };
+      existing.pcRental += row.pcRental;
+      existing.store += row.store;
+      existing.print += row.print;
+      existing.totalSales += row.pcRental + row.store + row.print;
+      buckets.set(key, existing);
+    });
+
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([label, values]) => ({
+        label,
+        pcRental: Number(values.pcRental || 0),
+        store: Number(values.store || 0),
+        print: Number(values.print || 0),
+        totalSales: Number(values.totalSales || 0),
+      }));
+  }, [salesTimelineRows, period]);
+
+  const printSalesChartData = useMemo(() => {
+    if (!printDailyRows.length) {
+      return [];
+    }
+
+    const normalized = printDailyRows
+      .map((row) => ({
+        date: row.date,
+        total_print_sales: Number(row.total_print_sales || 0),
+        document_sales: Number(row.document_sales || 0),
+        photo_sales: Number(row.photo_sales || 0),
+        print_errors: Number(row.print_errors || 0),
+      }))
+      .filter((row) => {
+        const dateObj = new Date(`${row.date}T00:00:00`);
+        return !Number.isNaN(dateObj.getTime()) && isWithinSelectedWindow(dateObj, period);
+      })
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    if (period === 'daily') {
+      return padDailyWeekRows(normalized.map((row) => ({
+        label: row.date,
+        total_print_sales: row.total_print_sales,
+        document_sales: row.document_sales,
+        photo_sales: row.photo_sales,
+        print_errors: row.print_errors,
+      })), () => ({
+        total_print_sales: 0,
+        document_sales: 0,
+        photo_sales: 0,
+        print_errors: 0,
+      }));
+    }
+
+    const buckets = new Map();
+    normalized.forEach((row) => {
+      const dateObj = new Date(row.date);
+      if (Number.isNaN(dateObj.getTime())) return;
+
+      const key = getPeriodBucketKey(dateObj, period);
+      const existing = buckets.get(key) || {
+        total_print_sales: 0,
+        document_sales: 0,
+        photo_sales: 0,
+        print_errors: 0,
+      };
+
+      buckets.set(key, {
+        total_print_sales: existing.total_print_sales + row.total_print_sales,
+        document_sales: existing.document_sales + row.document_sales,
+        photo_sales: existing.photo_sales + row.photo_sales,
+        print_errors: existing.print_errors + row.print_errors,
+      });
+    });
+
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([label, values]) => ({
+        label,
+        total_print_sales: values.total_print_sales,
+        document_sales: values.document_sales,
+        photo_sales: values.photo_sales,
+        print_errors: values.print_errors,
+      }));
+  }, [printDailyRows, period]);
+
+  const printSalesTotals = useMemo(() => {
+    return printSalesChartData.reduce(
+      (acc, row) => ({
+        totalPrintSales: acc.totalPrintSales + Number(row.total_print_sales || 0),
+        documentSales: acc.documentSales + Number(row.document_sales || 0),
+        photoSales: acc.photoSales + Number(row.photo_sales || 0),
+        printErrors: acc.printErrors + Number(row.print_errors || 0),
+      }),
+      { totalPrintSales: 0, documentSales: 0, photoSales: 0, printErrors: 0 }
+    );
+  }, [printSalesChartData]);
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -486,9 +759,72 @@ function AdminReports({ adminPassword }) {
       </Typography>
 
       <Paper sx={{ p: 3, mt: 3 }} elevation={2}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+          <Typography variant="subtitle1">
+            Sales
+          </Typography>
+          <ToggleButtonGroup
+            size="small"
+            value={period}
+            exclusive
+            onChange={(event, next) => {
+              if (next) setPeriod(next);
+            }}
+            aria-label="sales period"
+          >
+            <ToggleButton value="daily">Daily</ToggleButton>
+            <ToggleButton value="weekly">Weekly</ToggleButton>
+            <ToggleButton value="monthly">Monthly</ToggleButton>
+            <ToggleButton value="quarterly">Quarterly</ToggleButton>
+            <ToggleButton value="yearly">Yearly</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+
+        {salesBreakdownDataset.length > 0 && (
+          <BarChart
+            dataset={salesBreakdownDataset}
+            xAxis={[{ scaleType: 'band', dataKey: 'label' }]}
+            yAxis={[{ label: 'Sales (₱)' }]}
+            series={[
+              {
+                dataKey: 'totalSales',
+                label: 'Total Sales',
+                color: '#1B5E20',
+                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'pcRental',
+                label: 'PC Rental',
+                color: '#2E96FF',
+                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'store',
+                label: 'Store',
+                color: '#EF6C00',
+                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'print',
+                label: 'Print',
+                color: '#FBC02D',
+                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+              },
+            ]}
+            slotProps={{
+              legend: {
+                position: { vertical: 'bottom', horizontal: 'middle' },
+              },
+            }}
+            height={320}
+          />
+        )}
+      </Paper>
+
+      <Paper sx={{ p: 3, mt: 3 }} elevation={2}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="subtitle1">
-            PC Sales and Hours Over Time ({activeWindowLabel})
+            PC Rental Sales ({activeWindowLabel})
           </Typography>
           <ToggleButtonGroup
             size="small"
@@ -557,16 +893,41 @@ function AdminReports({ adminPassword }) {
       </Paper>
 
       <Paper sx={{ p: 3, mt: 3, }} elevation={2}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2, gap: 2, flexWrap: 'wrap' }}>
           <Typography variant="subtitle1">
-            Store Product Sales ({period.charAt(0).toUpperCase() + period.slice(1)})
+            Store Sales ({period.charAt(0).toUpperCase() + period.slice(1)})
           </Typography>
           <Box sx={{ textAlign: 'right' }}>
+            <ToggleButtonGroup
+              size="small"
+              value={period}
+              exclusive
+              onChange={(event, next) => {
+                if (next) setPeriod(next);
+              }}
+              aria-label="store product sales period"
+              sx={{ mb: 1 }}
+            >
+              <ToggleButton value="daily">Daily</ToggleButton>
+              <ToggleButton value="weekly">Weekly</ToggleButton>
+              <ToggleButton value="monthly">Monthly</ToggleButton>
+              <ToggleButton value="quarterly">Quarterly</ToggleButton>
+              <ToggleButton value="yearly">Yearly</ToggleButton>
+            </ToggleButtonGroup>
             <Typography variant="body2" color="text.secondary">
-              Total Sales: ₱{productSalesTotals.totalSales.toFixed(2)}
+              Gross Sales: ₱{productSalesTotals.grossSales.toFixed(2)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Orders: {productSalesTotals.totalOrders.toLocaleString('en-US')} | Items Sold: {productSalesTotals.totalItems.toLocaleString('en-US')}
+              Returns: ₱{productSalesTotals.returns.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Internal Usage: ₱{productSalesTotals.internalUsage.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
+              Net Store Sales: ₱{productSalesTotals.netStoreSales.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Profit: ₱{productSalesTotals.totalProfit.toFixed(2)} | Orders: {productSalesTotals.totalOrders.toLocaleString('en-US')} | Items Sold: {productSalesTotals.totalItems.toLocaleString('en-US')}
             </Typography>
           </Box>
         </Box>
@@ -578,9 +939,9 @@ function AdminReports({ adminPassword }) {
         )}
 
         {!productReportError && productSalesChartData.length > 0 && (
-          <LineChart
+          <BarChart
             dataset={productSalesChartData}
-            xAxis={[{ scaleType: 'point', dataKey: 'label' }]}
+            xAxis={[{ scaleType: 'band', dataKey: 'label' }]}
             yAxis={[
               { id: 'salesAxis', label: 'Sales (₱)' },
               { id: 'countAxis', label: 'Count', position: 'right' },
@@ -588,26 +949,165 @@ function AdminReports({ adminPassword }) {
             series={[
               {
                 dataKey: 'total_sales',
-                label: 'Sales (₱)',
+                label: 'Store Sales (₱)',
                 yAxisId: 'salesAxis',
                 color: '#2e7d32',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                stack: 'salesNet',
+                valueFormatter: (value, context) => {
+                  const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
+                  const qty = Number(point?.sales_quantity ?? point?.items_sold ?? 0);
+                  return `Store Sales: ₱${Number(value || 0).toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                },
+              },
+              {
+                dataKey: 'total_returns',
+                label: 'Returns',
+                yAxisId: 'salesAxis',
+                color: '#d32f2f',
+                stack: 'deductions',
+                valueFormatter: (value, context) => {
+                  const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
+                  const qty = Number(point?.total_return_quantity ?? 0);
+                  const absValue = Math.abs(Number(value || 0));
+                  return `Returns: ₱${absValue.toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                },
+              },
+              {
+                dataKey: 'total_internal_usage',
+                label: 'Internal Usage',
+                yAxisId: 'salesAxis',
+                color: '#f9a825',
+                stack: 'deductions',
+                valueFormatter: (value, context) => {
+                  const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
+                  const qty = Number(point?.total_internal_usage_quantity ?? 0);
+                  const absValue = Math.abs(Number(value || 0));
+                  return `Internal Usage: ₱${absValue.toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                },
+              },
+              {
+                dataKey: 'total_profit',
+                label: 'Profit (₱)',
+                yAxisId: 'salesAxis',
+                color: '#8e24aa',
+                stack: 'profit',
+                valueFormatter: (value) => `Profit: ₱${Number(value || 0).toFixed(2)}`,
               },
               {
                 dataKey: 'order_count',
                 label: 'Orders',
                 yAxisId: 'countAxis',
                 color: '#1565c0',
-                valueFormatter: (value) => `${Number(value || 0).toFixed(0)} order(s)`,
+                stack: 'counts',
+                valueFormatter: (value) => `Orders: ${Number(value || 0).toFixed(0)}`,
               },
               {
                 dataKey: 'items_sold',
                 label: 'Items Sold',
                 yAxisId: 'countAxis',
                 color: '#ef6c00',
-                valueFormatter: (value) => `${Number(value || 0).toFixed(0)} item(s)`,
+                stack: 'counts',
+                valueFormatter: (value) => `Items Sold: ${Number(value || 0).toFixed(0)}`,
               },
             ]}
+            slotProps={{
+              legend: {
+                position: { vertical: 'bottom', horizontal: 'middle' },
+              },
+            }}
+            height={360}
+            margin={{ bottom: 36 }}
+          />
+        )}
+      </Paper>
+
+      <Paper sx={{ p: 3, mt: 3 }} elevation={2}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+          <Typography variant="subtitle1">
+            Print Reports ({period.charAt(0).toUpperCase() + period.slice(1)})
+          </Typography>
+          <Box sx={{ textAlign: 'right' }}>
+            <ToggleButtonGroup
+              size="small"
+              value={period}
+              exclusive
+              onChange={(event, next) => {
+                if (next) setPeriod(next);
+              }}
+              aria-label="print reports period"
+              sx={{ mb: 1 }}
+            >
+              <ToggleButton value="daily">Daily</ToggleButton>
+              <ToggleButton value="weekly">Weekly</ToggleButton>
+              <ToggleButton value="monthly">Monthly</ToggleButton>
+              <ToggleButton value="quarterly">Quarterly</ToggleButton>
+              <ToggleButton value="yearly">Yearly</ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
+              Total Print Sales: ₱{printSalesTotals.totalPrintSales.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Document: ₱{printSalesTotals.documentSales.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Photo: ₱{printSalesTotals.photoSales.toFixed(2)}
+            </Typography>
+            <Typography variant="body2" color="warning.main">
+              Print Errors: ₱{Math.abs(printSalesTotals.printErrors).toFixed(2)}
+            </Typography>
+          </Box>
+        </Box>
+
+        {printReportError && <Alert severity="error" sx={{ mb: 2 }}>{printReportError}</Alert>}
+
+        {!printReportError && printSalesChartData.length === 0 && (
+          <Alert severity="info">No print sales data available yet.</Alert>
+        )}
+
+        {!printReportError && printSalesChartData.length > 0 && (
+          <BarChart
+            dataset={printSalesChartData}
+            xAxis={[{ scaleType: 'band', dataKey: 'label' }]}
+            yAxis={[{ id: 'printSalesAxis', label: 'Sales (₱)' }]}
+            series={[
+              {
+                dataKey: 'total_print_sales',
+                label: 'Total Print Sales',
+                yAxisId: 'printSalesAxis',
+                color: '#2e7d32',
+                stack: 'printTotal',
+                valueFormatter: (value) => `Total Print Sales: ₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'document_sales',
+                label: 'Document',
+                yAxisId: 'printSalesAxis',
+                color: '#1565c0',
+                stack: 'printTypes',
+                valueFormatter: (value) => `Document: ₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'photo_sales',
+                label: 'Photo',
+                yAxisId: 'printSalesAxis',
+                color: '#8e24aa',
+                stack: 'printTypes',
+                valueFormatter: (value) => `Photo: ₱${Number(value || 0).toFixed(2)}`,
+              },
+              {
+                dataKey: 'print_errors',
+                label: 'Print Errors',
+                yAxisId: 'printSalesAxis',
+                color: '#d32f2f',
+                stack: 'printErrors',
+                valueFormatter: (value) => `Print Errors: ₱${Math.abs(Number(value || 0)).toFixed(2)}`,
+              },
+            ]}
+            slotProps={{
+              legend: {
+                position: { vertical: 'bottom', horizontal: 'middle' },
+              },
+            }}
             height={360}
             margin={{ bottom: 36 }}
           />

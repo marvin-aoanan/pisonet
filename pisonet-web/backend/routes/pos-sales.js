@@ -73,6 +73,59 @@ function sendValidationError(res, fieldErrors) {
   });
 }
 
+function calculatePosSaleSubtotal({ transactionType, baseSubtotal, amountOverride }) {
+  if (transactionType === 'sale') {
+    return Number(baseSubtotal) || 0;
+  }
+
+  if (transactionType === 'internal_usage' && amountOverride != null && Number.isFinite(Number(amountOverride)) && Number(amountOverride) >= 0) {
+    return -Number(amountOverride);
+  }
+
+  return Number(baseSubtotal) || 0;
+}
+
+function normalizePosTransactionLedgerEntry({ transactionType, totalQuantity, transactionAmount, description }) {
+  const safeTransactionType = transactionType === 'internal_usage' ? 'internal_usage' : 'product_order';
+  const safeAmount = Number(transactionAmount) || 0;
+  const safeDenomination = Number(totalQuantity) || 0;
+  const safeDescription = description || null;
+
+  return {
+    transaction_type: safeTransactionType,
+    amount: safeAmount,
+    denomination: safeDenomination,
+    description: safeDescription,
+  };
+}
+
+function normalizePosReportReturnAmount(row) {
+  const amount = Number(row?.amount ?? 0);
+  const description = String(row?.description || '');
+  const transactionType = String(row?.transaction_type || '');
+
+  if (transactionType !== 'product_order') {
+    return 0;
+  }
+
+  if (amount < 0 || /POS Return/i.test(description)) {
+    return Math.abs(amount);
+  }
+
+  return 0;
+}
+
+function normalizePosReportInternalUsageAmount(row) {
+  const amount = Number(row?.amount ?? 0);
+  const transactionType = String(row?.transaction_type || '');
+
+  if (transactionType !== 'internal_usage') {
+    return 0;
+  }
+
+  return Math.abs(amount);
+}
+
 function parseDateParam(value, fieldName, fieldErrors) {
   if (value == null || String(value).trim() === '') {
     return null;
@@ -123,11 +176,18 @@ router.use((req, res, next) => {
 router.post('/', (req, res) => {
   const body = req.body || {};
   const fieldErrors = {};
+  const explicitTransactionType = String(body.transaction_type || '').trim().toLowerCase();
+  const allowedTransactionTypes = new Set(['sale', 'return_invalid', 'internal_usage']);
+  const transactionType = allowedTransactionTypes.has(explicitTransactionType)
+    ? explicitTransactionType
+    : (body?.is_deduction === true || body?.is_deduction === 'true' || body?.is_deduction === 1 ? 'return_invalid' : 'sale');
+  const isDeduction = transactionType !== 'sale';
 
   const paymentMethod = String(body.payment_method || '').trim().toLowerCase();
   const soldBy = String(body.sold_by || '').trim();
   const notes = body.notes == null ? null : String(body.notes).trim();
   const itemsInput = Array.isArray(body.items) ? body.items : null;
+  const amountOverride = body.amount_override == null ? null : Number(body.amount_override);
 
   if (paymentMethod !== PAYMENT_METHOD_CASH) {
     fieldErrors.payment_method = ['payment_method must be cash'];
@@ -139,6 +199,10 @@ router.post('/', (req, res) => {
 
   if (notes != null && notes.length > 500) {
     fieldErrors.notes = ['notes max length is 500'];
+  }
+
+  if (transactionType === 'internal_usage' && amountOverride != null && (!Number.isFinite(amountOverride) || amountOverride < 0)) {
+    fieldErrors.amount_override = ['amount_override must be a non-negative number'];
   }
 
   if (!itemsInput || itemsInput.length < 1 || itemsInput.length > 100) {
@@ -214,10 +278,21 @@ router.post('/', (req, res) => {
     }
 
     const insufficient = [];
+    const totalQuantity = mergedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const pricedItems = mergedItems.map((item) => {
       const product = byId.get(item.product_id);
       const available = Number(product.quantity_in_stock || 0);
-      if (item.quantity > available) {
+      const unitBase = roundMoney(product.base_price || 0);
+      const unitMarkup = roundMoney(product.markup_price || 0);
+      const unitFinal = roundMoney(product.final_price || 0);
+      const baseLineTotal = roundMoney(unitFinal * item.quantity);
+      const effectiveLineTotal = transactionType === 'sale'
+        ? baseLineTotal
+        : transactionType === 'internal_usage' && amountOverride != null && Number.isFinite(amountOverride)
+          ? roundMoney(-(amountOverride / totalQuantity) * item.quantity)
+          : -baseLineTotal;
+
+      if (transactionType !== 'return_invalid' && item.quantity > available) {
         insufficient.push({
           product_id: item.product_id,
           sku: product.sku,
@@ -226,11 +301,6 @@ router.post('/', (req, res) => {
           available_qty: available,
         });
       }
-
-      const unitBase = roundMoney(product.base_price || 0);
-      const unitMarkup = roundMoney(product.markup_price || 0);
-      const unitFinal = roundMoney(product.final_price || 0);
-      const lineTotal = roundMoney(unitFinal * item.quantity);
 
       return {
         product_id: item.product_id,
@@ -241,8 +311,8 @@ router.post('/', (req, res) => {
         unit_base_price: unitBase,
         unit_markup_price: unitMarkup,
         unit_final_price: unitFinal,
-        line_total: lineTotal,
-        remaining_stock: available - item.quantity,
+        line_total: effectiveLineTotal,
+        remaining_stock: transactionType === 'return_invalid' ? available + item.quantity : available - item.quantity,
       };
     });
 
@@ -257,29 +327,44 @@ router.post('/', (req, res) => {
       });
     }
 
-    const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.line_total, 0));
-    const totalQuantity = pricedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const baseSubtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.line_total, 0));
+    const subtotal = calculatePosSaleSubtotal({
+      transactionType,
+      baseSubtotal,
+      amountOverride,
+    });
+    const transactionAmount = subtotal;
     const soldAt = new Date().toISOString();
     const safeNotes = notes || null;
 
     let saleId;
     let referenceNo;
     let transactionId;
+    const pendingReferenceNo = `PENDING-${Date.now()}`;
 
     db.run('BEGIN IMMEDIATE TRANSACTION');
 
     try {
-      const createSale = db.run(
+      db.run(
         `INSERT INTO product_sales (reference_no, subtotal, payment_method, notes, sold_by, sold_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [`PENDING-${Date.now()}`, subtotal, PAYMENT_METHOD_CASH, safeNotes, soldBy, soldAt]
+        [pendingReferenceNo, subtotal, PAYMENT_METHOD_CASH, safeNotes, soldBy, soldAt]
       );
-      saleId = createSale.lastID;
+      const saleIdRow = db.get('SELECT id FROM product_sales WHERE reference_no = ?', [pendingReferenceNo]);
+      saleId = Number(saleIdRow?.id || 0);
+
+      if (!saleId) {
+        throw new Error('Failed to resolve inserted sale id');
+      }
+
       referenceNo = buildReferenceNumber(soldAt, saleId);
 
       db.run('UPDATE product_sales SET reference_no = ? WHERE id = ?', [referenceNo, saleId]);
 
       pricedItems.forEach((item) => {
+        const basePrice = item.unit_final_price;
+        const effectiveLineTotal = item.line_total;
+
         db.run(
           `INSERT INTO product_sale_items (
             sale_id, product_id, quantity, unit_base_price, unit_markup_price, unit_final_price, line_total
@@ -291,33 +376,63 @@ router.post('/', (req, res) => {
             item.unit_base_price,
             item.unit_markup_price,
             item.unit_final_price,
-            item.line_total,
+            effectiveLineTotal,
           ]
         );
 
+        const stockDelta = transactionType === 'return_invalid' ? item.quantity : -item.quantity;
         const stockUpdate = db.run(
-          'UPDATE products SET quantity_in_stock = quantity_in_stock - ?, updated_at = ? WHERE id = ? AND quantity_in_stock >= ?',
-          [item.quantity, soldAt, item.product_id, item.quantity]
+          transactionType === 'return_invalid'
+            ? 'UPDATE products SET quantity_in_stock = quantity_in_stock + ?, updated_at = ? WHERE id = ?'
+            : 'UPDATE products SET quantity_in_stock = quantity_in_stock - ?, updated_at = ? WHERE id = ? AND quantity_in_stock >= ?',
+          transactionType === 'return_invalid'
+            ? [item.quantity, soldAt, item.product_id]
+            : [item.quantity, soldAt, item.product_id, item.quantity]
         );
 
         if (!stockUpdate || Number(stockUpdate.changes || 0) !== 1) {
           throw new Error(`Stock update conflict for product_id ${item.product_id}`);
         }
+
+        db.run(
+          `INSERT INTO product_inventory_logs (
+            product_id, event_type, quantity_delta, quantity_before, quantity_after, unit_cost, notes, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.product_id,
+            transactionType === 'return_invalid' ? 'POS_RETURN_INVALID' : 'POS_INTERNAL_USAGE',
+            stockDelta,
+            Number(byId.get(item.product_id).quantity_in_stock || 0),
+            Number(byId.get(item.product_id).quantity_in_stock || 0) + stockDelta,
+            basePrice,
+            safeNotes || null,
+            soldBy,
+            soldAt,
+          ]
+        );
+      });
+
+      const ledgerEntry = normalizePosTransactionLedgerEntry({
+        transactionType,
+        totalQuantity,
+        transactionAmount,
+        description: `${transactionType === 'return_invalid' ? 'POS Return/Invalid' : transactionType === 'internal_usage' ? 'POS Internal Usage' : 'POS Sale'}: ${pricedItems
+          .map((item) => `${item.sku}, ${item.name}, ${item.size || 'N/A'}, ${item.quantity}`)
+          .join(' | ')}${safeNotes ? `, Notes: ${safeNotes}` : ''}`,
       });
 
       const txInsert = db.run(
-        `INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description, sold_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           null,
-          subtotal,
-          totalQuantity,
+          ledgerEntry.amount,
+          ledgerEntry.denomination,
           soldAt,
-          'product_order',
+          ledgerEntry.transaction_type,
           null,
-          `POS Sale: ${pricedItems
-            .map((item) => `${item.sku}, ${item.name}, ${item.size || 'N/A'}, ${item.quantity}`)
-            .join(' | ')}${safeNotes ? `, Notes: ${safeNotes}` : ''}`,
+          ledgerEntry.description,
+          soldBy,
         ]
       );
 
@@ -340,14 +455,14 @@ router.post('/', (req, res) => {
         product_ids: pricedItems.map((item) => item.product_id),
         products: pricedItems.map((item) => ({
           product_id: item.product_id,
-          remaining_stock: item.remaining_stock,
+          remaining_stock: transactionType === 'return_invalid' ? Number(byId.get(item.product_id).quantity_in_stock || 0) + item.quantity : Number(byId.get(item.product_id).quantity_in_stock || 0) - item.quantity,
         })),
       });
     }
 
     return res.status(201).json({
       status: 'success',
-      message: 'Sale recorded',
+      message: transactionType === 'return_invalid' ? 'Return/Invalid recorded' : transactionType === 'internal_usage' ? 'Internal usage recorded' : 'Sale recorded',
       data: {
         sale: {
           id: saleId,
@@ -357,6 +472,7 @@ router.post('/', (req, res) => {
           notes: safeNotes,
           sold_by: soldBy,
           sold_at: soldAt,
+          transaction_type: transactionType,
         },
         items: pricedItems.map((item) => ({
           product_id: item.product_id,
@@ -369,7 +485,13 @@ router.post('/', (req, res) => {
         })),
         transaction: {
           transaction_id: transactionId,
-          transaction_type: 'product_order',
+          transaction_type: normalizePosTransactionLedgerEntry({
+            transactionType,
+            totalQuantity,
+            transactionAmount,
+          }).transaction_type,
+          is_deduction: isDeduction,
+          amount: transactionAmount,
         },
       },
     });
@@ -466,38 +588,91 @@ router.get('/reports/daily', (req, res) => {
     return sendValidationError(res, fieldErrors);
   }
 
-  const sinceDate = new Date();
-  sinceDate.setUTCDate(sinceDate.getUTCDate() - (days - 1));
-  sinceDate.setUTCHours(0, 0, 0, 0);
-  const sinceIso = sinceDate.toISOString();
+  const sinceModifier = `-${days - 1} days`;
 
   try {
     const rows = db.all(
-      `SELECT
-         sales_day.date,
-         sales_day.order_count,
-         sales_day.total_sales,
-         COALESCE(items_day.items_sold, 0) AS items_sold
-       FROM (
-         SELECT
-           substr(ps.sold_at, 1, 10) AS date,
-           COUNT(*) AS order_count,
-           COALESCE(SUM(ps.subtotal), 0) AS total_sales
-         FROM product_sales ps
-         WHERE ps.sold_at >= ?
-         GROUP BY substr(ps.sold_at, 1, 10)
-       ) AS sales_day
-       LEFT JOIN (
-         SELECT
-           substr(ps.sold_at, 1, 10) AS date,
-           COALESCE(SUM(psi.quantity), 0) AS items_sold
-         FROM product_sales ps
-         JOIN product_sale_items psi ON psi.sale_id = ps.id
-         WHERE ps.sold_at >= ?
-         GROUP BY substr(ps.sold_at, 1, 10)
-       ) AS items_day ON items_day.date = sales_day.date
-       ORDER BY sales_day.date ASC`,
-      [sinceIso, sinceIso]
+      `WITH
+         sales_day AS (
+           SELECT
+             DATE(ps.sold_at, 'localtime') AS date,
+             COALESCE(SUM(CASE WHEN ps.subtotal > 0 THEN 1 ELSE 0 END), 0) AS order_count,
+             COALESCE(SUM(CASE WHEN ps.subtotal > 0 THEN ps.subtotal ELSE 0 END), 0) AS gross_sales
+           FROM product_sales ps
+           WHERE datetime(ps.sold_at, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+           GROUP BY DATE(ps.sold_at, 'localtime')
+         ),
+         items_day AS (
+           SELECT
+             DATE(psi.created_at, 'localtime') AS date,
+             COALESCE(SUM(CASE WHEN psi.line_total > 0 THEN psi.quantity ELSE 0 END), 0) AS items_sold,
+             COALESCE(SUM(CASE WHEN psi.line_total > 0 THEN psi.line_total - (psi.unit_base_price * psi.quantity) ELSE 0 END), 0) AS total_profit,
+             COALESCE(SUM(CASE WHEN psi.line_total > 0 THEN psi.quantity ELSE 0 END), 0) AS sales_quantity
+           FROM product_sale_items psi
+           WHERE datetime(psi.created_at, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+           GROUP BY DATE(psi.created_at, 'localtime')
+         ),
+         net_store_day AS (
+           SELECT
+             DATE(t.timestamp, 'localtime') AS date,
+             COALESCE(SUM(CAST(t.amount AS REAL)), 0) AS net_store_sales
+           FROM transactions t
+           WHERE datetime(t.timestamp, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+             AND t.transaction_type = 'product_order'
+           GROUP BY DATE(t.timestamp, 'localtime')
+         ),
+         returns_day AS (
+           SELECT
+             DATE(t.timestamp, 'localtime') AS date,
+             COALESCE(SUM(CASE WHEN t.amount < 0 OR instr(COALESCE(t.description, ''), 'POS Return') > 0 THEN ABS(CAST(t.denomination AS REAL)) ELSE 0 END), 0) AS total_return_quantity,
+             COALESCE(SUM(CASE WHEN t.amount < 0 OR instr(COALESCE(t.description, ''), 'POS Return') > 0 THEN ABS(CAST(t.amount AS REAL)) ELSE 0 END), 0) AS total_returns
+           FROM transactions t
+           WHERE datetime(t.timestamp, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+             AND t.transaction_type = 'product_order'
+           GROUP BY DATE(t.timestamp, 'localtime')
+         ),
+         internal_usage_day AS (
+           SELECT
+             DATE(t.timestamp, 'localtime') AS date,
+             COALESCE(SUM(CASE WHEN t.transaction_type = 'internal_usage' THEN ABS(CAST(t.denomination AS REAL)) ELSE 0 END), 0) AS total_internal_usage_quantity,
+             COALESCE(SUM(CASE WHEN t.transaction_type = 'internal_usage' THEN ABS(CAST(t.amount AS REAL)) ELSE 0 END), 0) AS total_internal_usage
+           FROM transactions t
+           WHERE datetime(t.timestamp, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+             AND t.transaction_type = 'internal_usage'
+           GROUP BY DATE(t.timestamp, 'localtime')
+         ),
+         all_days AS (
+           SELECT date FROM sales_day
+           UNION
+           SELECT date FROM items_day
+           UNION
+           SELECT date FROM net_store_day
+           UNION
+           SELECT date FROM returns_day
+           UNION
+           SELECT date FROM internal_usage_day
+         )
+       SELECT
+         d.date,
+         COALESCE(sales_day.order_count, 0) AS order_count,
+         COALESCE(net_store_day.net_store_sales, 0) AS total_sales,
+         COALESCE(sales_day.gross_sales, 0) AS gross_sales,
+         COALESCE(net_store_day.net_store_sales, 0) AS net_store_sales,
+         COALESCE(items_day.items_sold, 0) AS items_sold,
+         COALESCE(items_day.total_profit, 0) AS total_profit,
+         COALESCE(items_day.sales_quantity, 0) AS sales_quantity,
+         COALESCE(returns_day.total_returns, 0) AS total_returns,
+         COALESCE(returns_day.total_return_quantity, 0) AS total_return_quantity,
+         COALESCE(internal_usage_day.total_internal_usage, 0) AS total_internal_usage,
+         COALESCE(internal_usage_day.total_internal_usage_quantity, 0) AS total_internal_usage_quantity
+       FROM all_days d
+       LEFT JOIN sales_day ON sales_day.date = d.date
+       LEFT JOIN items_day ON items_day.date = d.date
+       LEFT JOIN net_store_day ON net_store_day.date = d.date
+       LEFT JOIN returns_day ON returns_day.date = d.date
+       LEFT JOIN internal_usage_day ON internal_usage_day.date = d.date
+       ORDER BY d.date ASC`,
+      [sinceModifier, sinceModifier, sinceModifier, sinceModifier, sinceModifier]
     );
 
     return res.json({
@@ -506,11 +681,19 @@ router.get('/reports/daily', (req, res) => {
         date: row.date,
         order_count: Number(row.order_count || 0),
         items_sold: Number(row.items_sold || 0),
+        sales_quantity: Number(row.sales_quantity || row.items_sold || 0),
         total_sales: Number(row.total_sales || 0),
+        gross_sales: Number(row.gross_sales || 0),
+        net_store_sales: Number(row.net_store_sales || row.total_sales || 0),
+        total_profit: Number(row.total_profit || 0),
+        total_returns: Number(row.total_returns || 0),
+        total_return_quantity: Number(row.total_return_quantity || 0),
+        total_internal_usage: Number(row.total_internal_usage || 0),
+        total_internal_usage_quantity: Number(row.total_internal_usage_quantity || 0),
       })),
       meta: {
         days,
-        since: sinceIso,
+        since: sinceModifier,
       },
     });
   } catch (err) {
@@ -660,3 +843,5 @@ router.get('/:id/receipt', (req, res) => {
 });
 
 module.exports = router;
+module.exports.calculatePosSaleSubtotal = calculatePosSaleSubtotal;
+module.exports.normalizePosTransactionLedgerEntry = normalizePosTransactionLedgerEntry;

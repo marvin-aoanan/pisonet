@@ -12,6 +12,9 @@ import {
   Divider,
   Drawer,
   Fab,
+  FormControlLabel,
+  Radio,
+  RadioGroup,
   Grid,
   IconButton,
   Snackbar,
@@ -26,12 +29,34 @@ import {
   Remove as RemoveIcon,
   DeleteOutline as DeleteIcon,
   ShoppingCart as ShoppingCartIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 const STORE_CART_STORAGE_KEY = 'admin.store.cart';
 const STORE_SOLD_BY_STORAGE_KEY = 'admin.store.soldBy';
 const STORE_NOTES_STORAGE_KEY = 'admin.store.notes';
+const TRANSACTION_OPTIONS = {
+  sale: {
+    label: 'Sale',
+    submitLabel: 'Checkout',
+    submitColor: 'warning',
+    successLabel: 'Sale recorded',
+  },
+  return_invalid: {
+    label: 'Return',
+    submitLabel: 'Record Return',
+    submitColor: 'error',
+    successLabel: 'Return recorded',
+  },
+  internal_usage: {
+    label: 'Internal',
+    submitLabel: 'Record Internal',
+    submitColor: 'secondary',
+    successLabel: 'Internal recorded',
+  },
+};
 
 function getInitialCart() {
   if (typeof window === 'undefined') {
@@ -185,7 +210,7 @@ function CategoryTicker({ categoryName, categoryProducts, addToCart, loading, la
                     <Typography variant="subtitle1" fontWeight={700}>{product.name}</Typography>
                     <Chip
                       size="small"
-                      label={Number(product.quantity_in_stock) > 0 ? `${product.quantity_in_stock} left` : 'Out'}
+                      label={Number(product.quantity_in_stock) > 0 ? `${product.quantity_in_stock} left` : 'Out of Stock'}
                       color={Number(product.quantity_in_stock) > 0 ? 'success' : 'error'}
                     />
                   </Stack>
@@ -235,10 +260,17 @@ function StoreView({ adminPassword, onSaleRecorded }) {
   const [snackbar, setSnackbar] = useState({ open: false, severity: 'success', message: '' });
   const [lastAddedProductId, setLastAddedProductId] = useState(null);
   const [cartPulse, setCartPulse] = useState(0);
+  const [cartCollapsed, setCartCollapsed] = useState(true);
+  const [transactionType, setTransactionType] = useState('sale');
+  const [internalUsagePrice, setInternalUsagePrice] = useState('');
   const [flyingBadges, setFlyingBadges] = useState([]);
   const [desktopCartTop, setDesktopCartTop] = useState(180);
   const cartPanelRef = useRef(null);
   const desktopDragAreaRef = useRef(null);
+
+  const isReturnInvalid = transactionType === 'return_invalid';
+  const isInternalUsage = transactionType === 'internal_usage';
+  const selectedTransaction = TRANSACTION_OPTIONS[transactionType] || TRANSACTION_OPTIONS.sale;
 
   const authHeaders = useMemo(() => ({ headers: { 'x-admin-password': adminPassword } }), [adminPassword]);
 
@@ -372,10 +404,12 @@ function StoreView({ adminPassword, onSaleRecorded }) {
 
   const addToCart = (product, sourceElement) => {
     const found = cart.find((entry) => entry.product_id === product.id);
-    if (found && found.quantity + 1 > found.available) {
+    if (!isReturnInvalid && found && found.quantity + 1 > found.available) {
       showToast('warning', `Only ${found.available} available for ${found.name}`);
       return;
     }
+
+    setCartCollapsed(false);
 
     if (sourceElement && cartPanelRef.current) {
       const sourceRect = sourceElement.getBoundingClientRect();
@@ -423,7 +457,7 @@ function StoreView({ adminPassword, onSaleRecorded }) {
       .map((entry) => {
         if (entry.product_id !== productId) return entry;
         const nextQty = direction === 'up' ? entry.quantity + 1 : entry.quantity - 1;
-        if (nextQty > entry.available) {
+        if (!isReturnInvalid && nextQty > entry.available) {
           showToast('warning', `Only ${entry.available} available for ${entry.name}`);
           return entry;
         }
@@ -437,6 +471,12 @@ function StoreView({ adminPassword, onSaleRecorded }) {
   };
 
   const subtotal = cart.reduce((sum, entry) => sum + (entry.quantity * entry.unit_final_price), 0);
+  const parsedInternalUsagePrice = isInternalUsage && internalUsagePrice !== '' ? Number(internalUsagePrice) : null;
+  const displaySubtotal = transactionType === 'sale'
+    ? subtotal
+    : transactionType === 'internal_usage' && parsedInternalUsagePrice !== null && Number.isFinite(parsedInternalUsagePrice) && parsedInternalUsagePrice >= 0
+      ? -parsedInternalUsagePrice
+      : -subtotal;
   const cartItemCount = cart.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
 
   const groupedProducts = products.reduce((acc, product) => {
@@ -459,7 +499,7 @@ function StoreView({ adminPassword, onSaleRecorded }) {
     return aName.localeCompare(bName);
   });
 
-  const handleCheckout = async () => {
+  const handleCheckout = async (typeOverride = transactionType) => {
     if (!soldBy.trim()) {
       showToast('error', 'Sold by is required');
       return;
@@ -470,12 +510,25 @@ function StoreView({ adminPassword, onSaleRecorded }) {
       return;
     }
 
+    const normalizedType = typeOverride === 'return_invalid' || typeOverride === 'internal_usage' ? typeOverride : 'sale';
+    const isDeduction = normalizedType !== 'sale';
+
+    if (normalizedType === 'internal_usage') {
+      const parsedInternalPrice = Number(internalUsagePrice);
+      if (internalUsagePrice !== '' && (!Number.isFinite(parsedInternalPrice) || parsedInternalPrice < 0)) {
+        showToast('error', 'Internal usage price must be zero or greater');
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const payload = {
         payment_method: 'cash',
         sold_by: soldBy.trim(),
         notes: notes.trim() || null,
+        transaction_type: normalizedType,
+        is_deduction: isDeduction,
         items: cart.map((item) => ({
           product_id: item.product_id,
           quantity: item.quantity,
@@ -483,11 +536,18 @@ function StoreView({ adminPassword, onSaleRecorded }) {
         })),
       };
 
+      if (normalizedType === 'internal_usage' && internalUsagePrice !== '') {
+        payload.amount_override = Number(internalUsagePrice);
+      }
+
       const response = await axios.post(`${API_URL}/pos-sales`, payload, authHeaders);
       const refNo = response.data?.data?.sale?.reference_no;
-      showToast('success', `Sale recorded (${refNo || 'no ref'})`);
+      const successLabel = (TRANSACTION_OPTIONS[normalizedType] || TRANSACTION_OPTIONS.sale).successLabel;
+      showToast('success', `${successLabel} (${refNo || 'no ref'})`);
       setCart([]);
       setNotes('');
+      setInternalUsagePrice('');
+      setTransactionType('sale');
       await fetchProducts();
       if (typeof onSaleRecorded === 'function') {
         onSaleRecorded(response.data?.data || null);
@@ -556,50 +616,105 @@ function StoreView({ adminPassword, onSaleRecorded }) {
               animate={{ scale: cartPulse > 0 ? [1, 1.01, 1] : 1 }}
               transition={{ duration: 0.18 }}
               variant="outlined"
-              sx={{ cursor: 'grab' }}
+              sx={{
+                cursor: 'grab',
+                borderColor: 'warning.main',
+                borderWidth: 1,
+                bgcolor: 'rgba(0, 0, 0, 0.98)',
+                boxShadow: '0 0 0 1px rgba(245, 124, 0, 0.35), 0 12px 32px rgba(245, 124, 0, 0.28)',
+              }}
             >
               <CardContent>
-                <Typography variant="h6">Current Cart</Typography>
-                <Divider sx={{ my: 1.5 }} />
-
-                {cart.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">No items selected.</Typography>
-                ) : (
-                  <Stack spacing={1.5} sx={{ mb: 2 }}>
-                    {cart.map((entry) => (
-                      <Box key={entry.product_id}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography variant="body2" fontWeight={700}>{entry.name}</Typography>
-                          <IconButton size="small" color="error" onClick={() => removeFromCart(entry.product_id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Stack>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'down')}>
-                              <RemoveIcon fontSize="small" />
-                            </IconButton>
-                            <Chip size="small" label={entry.quantity} />
-                            <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'up')}>
-                              <AddIcon fontSize="small" />
-                            </IconButton>
-                          </Stack>
-                          <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
-                        </Stack>
-                      </Box>
-                    ))}
-                  </Stack>
-                )}
-
-                <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{subtotal.toFixed(2)}</Typography>
-
-                <Stack spacing={1.5}>
-                  <TextField label="Sold By" value={soldBy} onChange={(e) => setSoldBy(e.target.value)} fullWidth />
-                  <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
-                  <Button variant="contained" onClick={handleCheckout} disabled={submitting || cart.length === 0}>
-                    {submitting ? 'Processing...' : 'Checkout'}
-                  </Button>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h6" color="warning.main">Current Cart</Typography>
+                  <IconButton
+                    size="small"
+                    color="warning"
+                    onClick={() => setCartCollapsed((prev) => !prev)}
+                    aria-label={cartCollapsed ? 'Expand cart' : 'Collapse cart'}
+                  >
+                    {cartCollapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+                  </IconButton>
                 </Stack>
+
+                {cartCollapsed ? (
+                  <Typography variant="caption" color="text.secondary">
+                    {cartItemCount} item(s) | Subtotal: P{displaySubtotal.toFixed(2)}
+                  </Typography>
+                ) : (
+                  <>
+                    <Divider sx={{ my: 1.5 }} />
+
+                    {cart.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">No items selected.</Typography>
+                    ) : (
+                      <Stack spacing={1.5} sx={{ mb: 2 }}>
+                        {cart.map((entry) => (
+                          <Box key={entry.product_id}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography variant="body2" fontWeight={700}>{entry.name}</Typography>
+                              <IconButton size="small" color="error" onClick={() => removeFromCart(entry.product_id)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
+                              <Stack direction="row" spacing={0.5} alignItems="center">
+                                <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'down')}>
+                                  <RemoveIcon fontSize="small" />
+                                </IconButton>
+                                <Chip size="small" label={entry.quantity} />
+                                <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'up')}>
+                                  <AddIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                              <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
+                            </Stack>
+                          </Box>
+                        ))}
+                      </Stack>
+                    )}
+
+                    <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{displaySubtotal.toFixed(2)}</Typography>
+
+                    <Stack spacing={1.5}>
+                      <RadioGroup row value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
+                        <FormControlLabel value="sale" control={<Radio color="warning" />} label="Sale" />
+                        <FormControlLabel value="return_invalid" control={<Radio color="error" />} label="Return" />
+                        <FormControlLabel value="internal_usage" control={<Radio color="secondary" />} label="Internal" />
+                      </RadioGroup>
+
+                      <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
+
+                      {isInternalUsage ? (
+                        <TextField
+                          label="Internal Price (optional)"
+                          type="number"
+                          value={internalUsagePrice}
+                          onChange={(e) => setInternalUsagePrice(e.target.value)}
+                          inputProps={{ min: 0, step: '0.01' }}
+                          fullWidth
+                        />
+                      ) : null}
+
+                      <Button
+                        variant="contained"
+                        color={selectedTransaction.submitColor}
+                        onClick={() => handleCheckout()}
+                        disabled={submitting || cart.length === 0}
+                      >
+                        {submitting ? 'Processing...' : selectedTransaction.submitLabel}
+                      </Button>
+
+                      <TextField
+                        label="Sold By"
+                        value={soldBy}
+                        onChange={(e) => setSoldBy(e.target.value)}
+                        size="small"
+                        fullWidth
+                      />
+                    </Stack>
+                  </>
+                )}
               </CardContent>
             </Card>
           </Grid>
@@ -666,49 +781,104 @@ function StoreView({ adminPassword, onSaleRecorded }) {
                 animate={{ scale: cartPulse > 0 ? [1, 1.01, 1] : 1 }}
                 transition={{ duration: 0.18 }}
                 variant="outlined"
+                sx={{
+                  borderColor: 'warning.main',
+                  borderWidth: 2,
+                  bgcolor: 'rgba(255, 255, 255, 0.9)',
+                  boxShadow: '0 0 0 1px rgba(245, 124, 0, 0.35), 0 12px 32px rgba(245, 124, 0, 0.28)',
+                }}
               >
                 <CardContent>
-                  <Typography variant="h6">Current Cart</Typography>
-                  <Divider sx={{ my: 1.5 }} />
-
-                  {cart.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">No items selected.</Typography>
-                  ) : (
-                    <Stack spacing={1.5} sx={{ mb: 2 }}>
-                      {cart.map((entry) => (
-                        <Box key={entry.product_id}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography variant="body2" fontWeight={700}>{entry.name}</Typography>
-                            <IconButton size="small" color="error" onClick={() => removeFromCart(entry.product_id)}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Stack>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
-                            <Stack direction="row" spacing={0.5} alignItems="center">
-                              <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'down')}>
-                                <RemoveIcon fontSize="small" />
-                              </IconButton>
-                              <Chip size="small" label={entry.quantity} />
-                              <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'up')}>
-                                <AddIcon fontSize="small" />
-                              </IconButton>
-                            </Stack>
-                            <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
-                          </Stack>
-                        </Box>
-                      ))}
-                    </Stack>
-                  )}
-
-                  <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{subtotal.toFixed(2)}</Typography>
-
-                  <Stack spacing={1.5}>
-                    <TextField label="Sold By" value={soldBy} onChange={(e) => setSoldBy(e.target.value)} fullWidth />
-                    <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
-                    <Button variant="contained" onClick={handleCheckout} disabled={submitting || cart.length === 0}>
-                      {submitting ? 'Processing...' : 'Checkout'}
-                    </Button>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="h6" color="warning.main">Current Cart</Typography>
+                    <IconButton
+                      size="small"
+                      color="warning"
+                      onClick={() => setCartCollapsed((prev) => !prev)}
+                      aria-label={cartCollapsed ? 'Expand cart' : 'Collapse cart'}
+                    >
+                      {cartCollapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
+                    </IconButton>
                   </Stack>
+
+                  {cartCollapsed ? (
+                    <Typography variant="caption" color="text.secondary">
+                      {cartItemCount} item(s) | Subtotal: P{displaySubtotal.toFixed(2)}
+                    </Typography>
+                  ) : (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+
+                      {cart.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">No items selected.</Typography>
+                      ) : (
+                        <Stack spacing={1.5} sx={{ mb: 2 }}>
+                          {cart.map((entry) => (
+                            <Box key={entry.product_id}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="body2" fontWeight={700}>{entry.name}</Typography>
+                                <IconButton size="small" color="error" onClick={() => removeFromCart(entry.product_id)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
+                                <Stack direction="row" spacing={0.5} alignItems="center">
+                                  <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'down')}>
+                                    <RemoveIcon fontSize="small" />
+                                  </IconButton>
+                                  <Chip size="small" label={entry.quantity} />
+                                  <IconButton size="small" onClick={() => changeCartQuantity(entry.product_id, 'up')}>
+                                    <AddIcon fontSize="small" />
+                                  </IconButton>
+                                </Stack>
+                                <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
+                              </Stack>
+                            </Box>
+                          ))}
+                        </Stack>
+                      )}
+
+                      <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{displaySubtotal.toFixed(2)}</Typography>
+
+                      <Stack spacing={1.5}>
+                        <RadioGroup row value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
+                          <FormControlLabel value="sale" control={<Radio color="warning" />} label="Sale" />
+                          <FormControlLabel value="return_invalid" control={<Radio color="error" />} label="Return" />
+                          <FormControlLabel value="internal_usage" control={<Radio color="secondary" />} label="Internal" />
+                        </RadioGroup>
+
+                        <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
+
+                        {isInternalUsage ? (
+                          <TextField
+                            label="Internal Price (optional)"
+                            type="number"
+                            value={internalUsagePrice}
+                            onChange={(e) => setInternalUsagePrice(e.target.value)}
+                            inputProps={{ min: 0, step: '0.01' }}
+                            fullWidth
+                          />
+                        ) : null}
+
+                        <Button
+                          variant="contained"
+                          color={selectedTransaction.submitColor}
+                          onClick={() => handleCheckout()}
+                          disabled={submitting || cart.length === 0}
+                        >
+                          {submitting ? 'Processing...' : selectedTransaction.submitLabel}
+                        </Button>
+
+                        <TextField
+                          label="Sold By"
+                          value={soldBy}
+                          onChange={(e) => setSoldBy(e.target.value)}
+                          size="small"
+                          fullWidth
+                        />
+                      </Stack>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </Box>

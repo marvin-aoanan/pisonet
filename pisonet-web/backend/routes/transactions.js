@@ -113,6 +113,40 @@ function loadElectricitySettings(callback) {
   });
 }
 
+function getLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function startOfLocalWeek(date) {
+  const value = new Date(date);
+  const day = value.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  value.setDate(value.getDate() + diff);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function getRevenueCategory(row) {
+  const transactionType = String(row?.transaction_type || '').trim();
+
+  if (transactionType === 'product_order') {
+    return 'store_sales';
+  }
+
+  if (transactionType.startsWith('print_')) {
+    return 'print_sales';
+  }
+
+  if (row?.unit_id != null) {
+    return 'pc_rental_sales';
+  }
+
+  return null;
+}
+
 // GET all transactions with pagination
 router.get('/', (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
@@ -265,6 +299,346 @@ router.get('/revenue/daily', (req, res) => {
       res.json(result);
     });
   });
+});
+
+// GET revenue breakdown over time by category for charting
+router.get('/revenue/daily-breakdown', (req, res) => {
+  const days = Number.parseInt(req.query.days, 10) || 365;
+
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_days',
+        message: 'days must be an integer between 1 and 3650',
+      },
+    });
+  }
+
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    const sinceCutoff = new Date();
+    sinceCutoff.setUTCDate(sinceCutoff.getUTCDate() - (days - 1));
+    sinceCutoff.setUTCHours(0, 0, 0, 0);
+    const sinceIso = sinceCutoff.toISOString();
+
+    db.all(
+      `
+        SELECT
+          DATE(timestamp, 'localtime') AS date,
+          amount,
+          denomination,
+          transaction_type,
+          unit_id
+        FROM transactions
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+      `,
+      [sinceIso],
+      (err, rows) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        const buckets = new Map();
+
+        (rows || []).forEach((row) => {
+          const category = getRevenueCategory(row);
+          if (!category) {
+            return;
+          }
+
+          const rowDate = String(row.date || '').slice(0, 10);
+          if (!rowDate) {
+            return;
+          }
+
+          const existing = buckets.get(rowDate) || {
+            date: rowDate,
+            pc_rental_sales: 0,
+            print_sales: 0,
+            store_sales: 0,
+          };
+
+          const revenue = getNormalizedRevenueAmount(row, flatRateSettings);
+          existing[category] += revenue;
+          buckets.set(rowDate, existing);
+        });
+
+        const result = Array.from(buckets.values())
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((entry) => ({
+            date: entry.date,
+            pc_rental_sales: Number(entry.pc_rental_sales.toFixed(4)),
+            print_sales: Number(entry.print_sales.toFixed(4)),
+            store_sales: Number(entry.store_sales.toFixed(4)),
+          }));
+
+        return res.json({ status: 'success', data: result, meta: { days, since: sinceIso } });
+      }
+    );
+  });
+});
+
+// GET revenue summary for dashboard cards
+router.get('/revenue/summary', (req, res) => {
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0);
+
+    const weekStart = startOfLocalWeek(now);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const effectiveWeekStart = new Date(Math.max(weekStart.getTime(), monthStart.getTime()));
+
+    const earliestStart = new Date(Math.min(yesterday.getTime(), effectiveWeekStart.getTime(), monthStart.getTime()));
+    const earliestStartIso = earliestStart.toISOString();
+
+    db.all(
+      `
+        SELECT
+          DATE(timestamp, 'localtime') AS date,
+          amount,
+          denomination,
+          transaction_type,
+          unit_id
+        FROM transactions
+        WHERE timestamp >= ?
+        ORDER BY date ASC
+      `,
+      [earliestStartIso],
+      (err, rows) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        const todayKey = getLocalDateKey(now);
+        const yesterdayKey = getLocalDateKey(yesterday);
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const weekStartKey = getLocalDateKey(effectiveWeekStart);
+
+        const summary = {
+          yesterday: { pc_rental_sales: 0, print_sales: 0, store_sales: 0 },
+          today: { pc_rental_sales: 0, print_sales: 0, store_sales: 0 },
+          week: { pc_rental_sales: 0, print_sales: 0, store_sales: 0 },
+          month: { pc_rental_sales: 0, print_sales: 0, store_sales: 0 },
+        };
+
+        (rows || []).forEach((row) => {
+          if (!row?.date) {
+            return;
+          }
+
+          const category = getRevenueCategory(row);
+          if (!category) {
+            return;
+          }
+
+          const revenue = getNormalizedRevenueAmount(row, flatRateSettings);
+          const rowDate = String(row.date).slice(0, 10);
+
+          if (rowDate === yesterdayKey) {
+            summary.yesterday[category] += revenue;
+          }
+
+          if (rowDate === todayKey) {
+            summary.today[category] += revenue;
+          }
+
+          if (rowDate >= weekStartKey && rowDate <= todayKey) {
+            summary.week[category] += revenue;
+          }
+
+          if (rowDate.startsWith(monthKey)) {
+            summary.month[category] += revenue;
+          }
+        });
+
+        return res.json({
+          status: 'success',
+          data: {
+            yesterday: {
+              pc_rental_sales: Number(summary.yesterday.pc_rental_sales.toFixed(4)),
+              print_sales: Number(summary.yesterday.print_sales.toFixed(4)),
+              store_sales: Number(summary.yesterday.store_sales.toFixed(4)),
+            },
+            today: {
+              pc_rental_sales: Number(summary.today.pc_rental_sales.toFixed(4)),
+              print_sales: Number(summary.today.print_sales.toFixed(4)),
+              store_sales: Number(summary.today.store_sales.toFixed(4)),
+            },
+            week: {
+              pc_rental_sales: Number(summary.week.pc_rental_sales.toFixed(4)),
+              print_sales: Number(summary.week.print_sales.toFixed(4)),
+              store_sales: Number(summary.week.store_sales.toFixed(4)),
+            },
+            month: {
+              pc_rental_sales: Number(summary.month.pc_rental_sales.toFixed(4)),
+              print_sales: Number(summary.month.print_sales.toFixed(4)),
+              store_sales: Number(summary.month.store_sales.toFixed(4)),
+            },
+          },
+        });
+      }
+    );
+  });
+});
+
+// GET monthly revenue breakdown for yearly stacked chart
+router.get('/revenue/monthly-breakdown', (req, res) => {
+  const requestedYear = Number.parseInt(req.query.year, 10);
+  const now = new Date();
+  const year = Number.isInteger(requestedYear) ? requestedYear : now.getFullYear();
+
+  loadElectricitySettings((settingsErr, { flatRateSettings } = {}) => {
+    if (settingsErr) {
+      return res.status(500).json({ error: settingsErr.message });
+    }
+
+    db.all(
+      `
+        SELECT
+          strftime('%Y-%m', timestamp, 'localtime') AS month_key,
+          amount,
+          denomination,
+          transaction_type,
+          unit_id
+        FROM transactions
+        WHERE strftime('%Y', timestamp, 'localtime') = ?
+        ORDER BY month_key ASC
+      `,
+      [String(year)],
+      (err, rows) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        const monthMap = new Map();
+        for (let month = 1; month <= 12; month += 1) {
+          const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+          monthMap.set(monthKey, {
+            total_sales: 0,
+            pc_rental_sales: 0,
+            print_sales: 0,
+            store_sales: 0,
+          });
+        }
+
+        (rows || []).forEach((row) => {
+          const monthKey = String(row.month_key || '').slice(0, 7);
+          if (!monthMap.has(monthKey)) {
+            return;
+          }
+
+          const category = getRevenueCategory(row);
+          if (!category) {
+            return;
+          }
+
+          const revenue = getNormalizedRevenueAmount(row, flatRateSettings);
+          const current = monthMap.get(monthKey);
+          current.total_sales += revenue;
+          current[category] += revenue;
+        });
+
+        const months = [];
+        const rowsData = [];
+        for (let month = 1; month <= 12; month += 1) {
+          const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+          const date = new Date(year, month - 1, 1);
+          const values = monthMap.get(monthKey);
+          const label = date.toLocaleDateString('en-US', { month: 'short' });
+
+          months.push(label);
+          rowsData.push({
+            month: label,
+            total_sales: Number(values.total_sales.toFixed(4)),
+            pc_rental_sales: Number(values.pc_rental_sales.toFixed(4)),
+            print_sales: Number(values.print_sales.toFixed(4)),
+            store_sales: Number(values.store_sales.toFixed(4)),
+          });
+        }
+
+        return res.json({
+          status: 'success',
+          data: {
+            year,
+            months,
+            rows: rowsData,
+          },
+        });
+      }
+    );
+  });
+});
+
+// GET print sales breakdown over time by category for charting
+router.get('/revenue/print-daily-breakdown', (req, res) => {
+  const days = Number.parseInt(req.query.days, 10) || 365;
+
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_days',
+        message: 'days must be an integer between 1 and 3650',
+      },
+    });
+  }
+
+  db.all(
+    `
+      WITH print_tx AS (
+        SELECT
+          DATE(timestamp, 'localtime') AS date,
+          transaction_type,
+          CAST(amount AS REAL) AS amount
+        FROM transactions
+        WHERE datetime(timestamp, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+          AND transaction_type LIKE 'print_%'
+      )
+      SELECT
+        date,
+        COALESCE(SUM(amount), 0) AS total_print_sales,
+        COALESCE(SUM(CASE WHEN transaction_type LIKE 'print_document_%' AND amount > 0 THEN amount ELSE 0 END), 0) AS document_sales,
+        COALESCE(SUM(CASE WHEN transaction_type LIKE 'print_photo_%' AND amount > 0 THEN amount ELSE 0 END), 0) AS photo_sales,
+        COALESCE(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 0) AS print_errors
+      FROM print_tx
+      GROUP BY date
+      ORDER BY date ASC
+    `,
+    [`-${days - 1} days`],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      return res.json({
+        status: 'success',
+        data: (rows || []).map((row) => ({
+          date: row.date,
+          total_print_sales: Number(row.total_print_sales || 0),
+          document_sales: Number(row.document_sales || 0),
+          photo_sales: Number(row.photo_sales || 0),
+          print_errors: Number(row.print_errors || 0),
+        })),
+        meta: {
+          days,
+          since: `-${days - 1} days`,
+        },
+      });
+    }
+  );
 });
 
 // GET revenue over time by unit (daily)
@@ -645,6 +1019,7 @@ router.post('/', (req, res) => {
 // POST record print service transaction
 router.post('/print-service', (req, res) => {
   const { service_type, pages_count } = req.body;
+  const isDeduction = req.body?.is_deduction === true || req.body?.is_deduction === 'true' || req.body?.is_deduction === 1;
   const description = String(req.body?.description || '').trim();
 
   if (!service_type || !PRINT_SERVICES[service_type]) {
@@ -658,7 +1033,8 @@ router.post('/print-service', (req, res) => {
     }
 
     const pricePerPage = Number(pricesByServiceType?.[service_type] ?? 0);
-    const totalAmount = pricePerPage * pagesCount;
+    const absoluteAmount = pricePerPage * pagesCount;
+    const totalAmount = isDeduction ? -absoluteAmount : absoluteAmount;
 
     db.run(
       'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -668,9 +1044,10 @@ router.post('/print-service', (req, res) => {
           return res.status(500).json({ error: err.message });
         }
         res.json({
-          message: 'Print service transaction recorded',
+          message: isDeduction ? 'Print service deduction recorded' : 'Print service transaction recorded',
           transaction_id: this.lastID,
           service_type,
+          is_deduction: isDeduction,
           pages_count: pagesCount,
           price_per_page: pricePerPage,
           total_amount: totalAmount,

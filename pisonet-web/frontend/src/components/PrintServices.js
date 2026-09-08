@@ -51,6 +51,7 @@ function PrintServices() {
   const [paperType, setPaperType] = useState('ordinary'); // 'ordinary' or 'special' (photo only)
   const [pageCount, setPageCount] = useState(1);
   const [printDescription, setPrintDescription] = useState('');
+  const [isDeduction, setIsDeduction] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [recordingLoading, setRecordingLoading] = useState(false);
 
@@ -91,7 +92,7 @@ function PrintServices() {
     return `print_${typePrefix}_${size}_${isColor ? 'color' : 'bw'}`;
   };
 
-  const handleOpenDialog = (serviceType) => {
+  const handleOpenDialog = (serviceType, deduction = false) => {
     setCurrentServiceType(serviceType);
     setSize('short');
     setHasImage(serviceType === 'photo');
@@ -99,8 +100,17 @@ function PrintServices() {
     setPaperType('ordinary');
     setPageCount(1);
     setPrintDescription('');
+    setIsDeduction(deduction);
     setMessage({ type: '', text: '' });
     setPrintDialogOpen(true);
+  };
+
+  const handleServiceTypeChange = (nextType) => {
+    const safeType = nextType === 'photo' ? 'photo' : 'document';
+    setCurrentServiceType(safeType);
+    setHasImage(safeType === 'photo');
+    setPaperType('ordinary');
+    setIsColor(false);
   };
 
   const handleConfirm = async () => {
@@ -117,6 +127,7 @@ function PrintServices() {
       await axios.post(`${API_URL}/transactions/print-service`, {
         service_type: serviceTypeId,
         pages_count: pageCount,
+        is_deduction: isDeduction,
         description: String(printDescription || '').trim() || null,
       });
 
@@ -124,9 +135,10 @@ function PrintServices() {
       const colorLabel = isColor ? 'Color' : 'B&W';
       const typeLabel = hasImage ? 'Photo' : 'Document';
       const paperLabel = hasImage ? (paperType === 'special' ? ', Special Paper' : ', Ordinary Paper') : '';
+      const totalLabel = `${isDeduction ? '-' : ''}₱${totalPrice.toFixed(2)}`;
       setMessage({
         type: 'success',
-        text: `${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ₱${totalPrice.toFixed(2)}`,
+        text: `${isDeduction ? 'Deduction:' : 'Recorded:'} ${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ${totalLabel}`,
       });
 
       setTimeout(() => {
@@ -147,6 +159,7 @@ function PrintServices() {
   const handleCancel = () => {
     setPrintDialogOpen(false);
     setPrintDescription('');
+    setIsDeduction(false);
     setMessage({ type: '', text: '' });
   };
 
@@ -229,15 +242,60 @@ function PrintServices() {
                 </Box>
               </Button>
             </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <Button
+                fullWidth
+                variant="contained"
+                onClick={() => handleOpenDialog('document', true)}
+                disabled={recordingLoading}
+                sx={{
+                  p: 3,
+                  backgroundColor: '#fff3e0',
+                  color: 'warning.dark',
+                  border: '2px solid',
+                  borderColor: 'warning.main',
+                  '&:hover': {
+                    backgroundColor: 'warning.main',
+                    color: '#ffffff',
+                  },
+                  '&:disabled': {
+                    opacity: 0.6,
+                  },
+                  textAlign: 'left',
+                }}
+              >
+                <Box sx={{ width: '100%' }}>
+                  <Typography variant="h6" fontWeight="600" sx={{ color: 'inherit', mb: 1 }}>
+                    ⚠️ Print Error / Test Only
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'inherit', opacity: 0.9 }}>
+                    Record failed/test prints as deduction
+                  </Typography>
+                </Box>
+              </Button>
+            </Grid>
           </Grid>
         </Paper>
       )}
 
       <Dialog open={printDialogOpen} onClose={handleCancel} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {currentServiceType === 'photo' ? '🖼️ Photo Printing' : '📄 Document Printing'}
+          {isDeduction
+            ? '⚠️ Print Error / Test Only (Deduction)'
+            : (currentServiceType === 'photo' ? '🖼️ Photo Printing' : '📄 Document Printing')}
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
+          {isDeduction && (
+            <FormControl sx={{ mb: 3, display: 'block' }}>
+              <FormLabel sx={{ mb: 1, fontWeight: 600 }}>Type</FormLabel>
+              <RadioGroup row value={currentServiceType === 'photo' ? 'photo' : 'document'} onChange={(e) => handleServiceTypeChange(e.target.value)}>
+                <FormControlLabel value="document" control={<Radio />} label="Document" />
+                <FormControlLabel value="photo" control={<Radio />} label="Photo" />
+              </RadioGroup>
+            </FormControl>
+          )}
+
           {/* Size Selection */}
           <FormControl sx={{ mb: 3, display: 'block' }}>
             <FormLabel sx={{ mb: 1, fontWeight: 600 }}>Size</FormLabel>
@@ -302,7 +360,7 @@ function PrintServices() {
               Pages: {pageCount}
             </Typography>
             <Typography variant="h6" color="primary" sx={{ fontWeight: 600, borderTop: '1px solid #90caf9', pt: 1 }}>
-              Total: ₱{getTotalPrice().toFixed(2)}
+              {isDeduction ? 'Deduction' : 'Total'}: {isDeduction ? '-' : ''}₱{getTotalPrice().toFixed(2)}
             </Typography>
           </Box>
 
@@ -321,10 +379,10 @@ function PrintServices() {
           <Button 
             onClick={handleConfirm}
             variant="contained"
-            color="primary"
+            color={isDeduction ? 'warning' : 'primary'}
             disabled={pageCount < 1 || recordingLoading}
           >
-            {recordingLoading ? 'Saving...' : 'Confirm'}
+            {recordingLoading ? 'Saving...' : (isDeduction ? 'Confirm Deduction' : 'Confirm')}
           </Button>
         </DialogActions>
       </Dialog>
