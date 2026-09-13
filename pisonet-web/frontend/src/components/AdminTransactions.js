@@ -92,6 +92,11 @@ function AdminTransactions({ adminPassword }) {
     return Math.floor(value);
   };
 
+  const isQuantityBasedTransaction = (row) => {
+    const type = String(row?.transaction_type || '');
+    return type === 'product_order' || type.startsWith('print_');
+  };
+
   const getEquivalentPesoAmount = (row) => {
     const amount = Number(row?.amount || 0);
     const type = row?.transaction_type;
@@ -274,7 +279,7 @@ function AdminTransactions({ adminPassword }) {
       renderCell: (params) => (
         <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', width: '100%' }}>
           <Typography color="info.main" fontWeight="bold">
-            {params.row.transaction_type === 'product_order'
+            {isQuantityBasedTransaction(params.row)
               ? `${getPosQuantity(params.row)}`
               : formatDurationFromSeconds(getEquivalentSeconds(params.row))}
           </Typography>
