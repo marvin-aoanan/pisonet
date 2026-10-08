@@ -29,6 +29,7 @@ import AdminSettings from './AdminSettings';
 import AdminProducts from './AdminProducts';
 import StoreView from './StoreView';
 import AdminOpex from './AdminOpex';
+import AdminGcashApprovals from './AdminGcashApprovals';
 
 const STORE_SUBTAB_STORAGE_KEY = 'admin.storeSubtab';
 
@@ -37,11 +38,11 @@ function getInitialStoreSubtab() {
     return 0;
   }
 
-  const storedValue = window.localStorage.getItem(STORE_SUBTAB_STORAGE_KEY);
-  if (storedValue === '1') {
-    return 1;
+  const parsed = Number.parseInt(window.localStorage.getItem(STORE_SUBTAB_STORAGE_KEY) || '0', 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2) {
+    return 0;
   }
-  return 0;
+  return parsed;
 }
 
 function TabPanel(props) {
@@ -146,13 +147,12 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           >
             <Tab label="POS" />
             <Tab icon={<InventoryIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Products" />
+            <Tab label="GCash Approvals" />
           </Tabs>
         </Box>
-        {storeTab === 0 ? (
-          <StoreView adminPassword={adminPassword} onSaleRecorded={onPosSaleRecorded} />
-        ) : (
-          <AdminProducts adminPassword={adminPassword} />
-        )}
+        {storeTab === 0 ? <StoreView adminPassword={adminPassword} onSaleRecorded={onPosSaleRecorded} /> : null}
+        {storeTab === 1 ? <AdminProducts adminPassword={adminPassword} /> : null}
+        {storeTab === 2 ? <AdminGcashApprovals adminPassword={adminPassword} /> : null}
       </TabPanel>
       <TabPanel value={value} index={3} isMobile={isMobile}>
         <PrintServices />

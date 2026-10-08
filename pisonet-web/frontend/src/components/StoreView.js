@@ -21,12 +21,16 @@ import {
   Snackbar,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
 import {
   Add as AddIcon,
+  AccountBalanceWallet as GcashIcon,
+  Paid as CashIcon,
   Remove as RemoveIcon,
   DeleteOutline as DeleteIcon,
   ShoppingCart as ShoppingCartIcon,
@@ -263,6 +267,8 @@ function StoreView({ adminPassword, onSaleRecorded }) {
   const [cartPulse, setCartPulse] = useState(0);
   const [cartCollapsed, setCartCollapsed] = useState(true);
   const [transactionType, setTransactionType] = useState('sale');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [gcashReference, setGcashReference] = useState('');
   const [internalUsagePrice, setInternalUsagePrice] = useState('');
   const [flyingBadges, setFlyingBadges] = useState([]);
   const [desktopCartTop, setDesktopCartTop] = useState(180);
@@ -272,6 +278,17 @@ function StoreView({ adminPassword, onSaleRecorded }) {
   const isReturnInvalid = transactionType === 'return_invalid';
   const isInternalUsage = transactionType === 'internal_usage';
   const selectedTransaction = TRANSACTION_OPTIONS[transactionType] || TRANSACTION_OPTIONS.sale;
+  const paymentToggleSx = {
+    justifyContent: 'center',
+    '&.Mui-selected': {
+      color: '#ffffff',
+      backgroundColor: 'success.main',
+      borderColor: 'success.dark',
+    },
+    '&.Mui-selected:hover': {
+      backgroundColor: 'success.dark',
+    },
+  };
 
   const authHeaders = useMemo(() => ({ headers: { 'x-admin-password': adminPassword } }), [adminPassword]);
 
@@ -403,6 +420,13 @@ function StoreView({ adminPassword, onSaleRecorded }) {
     });
   }, [products]);
 
+  useEffect(() => {
+    if (transactionType !== 'sale' && paymentMethod !== 'cash') {
+      setPaymentMethod('cash');
+      setGcashReference('');
+    }
+  }, [transactionType, paymentMethod]);
+
   const addToCart = (product, sourceElement) => {
     const found = cart.find((entry) => entry.product_id === product.id);
     if (!isReturnInvalid && found && found.quantity + 1 > found.available) {
@@ -522,10 +546,16 @@ function StoreView({ adminPassword, onSaleRecorded }) {
       }
     }
 
+    if (normalizedType === 'sale' && paymentMethod === 'gcash' && gcashReference.length > 120) {
+      showToast('error', 'GCash reference max length is 120');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
-        payment_method: 'cash',
+        payment_method: normalizedType === 'sale' ? paymentMethod : 'cash',
+        payment_reference: normalizedType === 'sale' && paymentMethod === 'gcash' ? (gcashReference.trim() || null) : null,
         sold_by: soldBy.trim(),
         notes: notes.trim() || null,
         transaction_type: normalizedType,
@@ -543,10 +573,14 @@ function StoreView({ adminPassword, onSaleRecorded }) {
 
       const response = await axios.post(`${API_URL}/pos-sales`, payload, authHeaders);
       const refNo = response.data?.data?.sale?.reference_no;
+      const paymentStatus = response.data?.data?.sale?.payment_status;
       const successLabel = (TRANSACTION_OPTIONS[normalizedType] || TRANSACTION_OPTIONS.sale).successLabel;
-      showToast('success', `${successLabel} (${refNo || 'no ref'})`);
+      const pendingLabel = paymentStatus === 'pending' ? ' - pending GCash approval' : '';
+      showToast('success', `${successLabel}${pendingLabel} (${refNo || 'no ref'})`);
       setCart([]);
       setNotes('');
+      setPaymentMethod('cash');
+      setGcashReference('');
       setInternalUsagePrice('');
       setTransactionType('sale');
       await fetchProducts();
@@ -683,6 +717,45 @@ function StoreView({ adminPassword, onSaleRecorded }) {
                         <FormControlLabel value="return_invalid" control={<Radio color="error" />} label="Return" />
                         <FormControlLabel value="internal_usage" control={<Radio color="secondary" />} label="Internal" />
                       </RadioGroup>
+
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                          Payment Method
+                        </Typography>
+                        <ToggleButtonGroup
+                          fullWidth
+                          exclusive
+                          value={paymentMethod}
+                          onChange={(_, value) => {
+                            if (value) setPaymentMethod(value);
+                          }}
+                          disabled={transactionType !== 'sale'}
+                          size="small"
+                        >
+                          <ToggleButton value="cash" aria-label="Cash" sx={paymentToggleSx}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <CashIcon fontSize="small" />
+                              <span>Cash</span>
+                            </Stack>
+                          </ToggleButton>
+                          <ToggleButton value="gcash" aria-label="GCash" sx={paymentToggleSx}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <GcashIcon fontSize="small" />
+                              <span>GCash</span>
+                            </Stack>
+                          </ToggleButton>
+                        </ToggleButtonGroup>
+                      </Box>
+
+                      {transactionType === 'sale' && paymentMethod === 'gcash' ? (
+                        <TextField
+                          label="GCash Reference (optional)"
+                          value={gcashReference}
+                          onChange={(e) => setGcashReference(e.target.value)}
+                          helperText="GCash sale will be pending until manual approval."
+                          fullWidth
+                        />
+                      ) : null}
 
                       <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
 
@@ -847,6 +920,45 @@ function StoreView({ adminPassword, onSaleRecorded }) {
                           <FormControlLabel value="return_invalid" control={<Radio color="error" />} label="Return" />
                           <FormControlLabel value="internal_usage" control={<Radio color="secondary" />} label="Internal" />
                         </RadioGroup>
+
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                            Payment Method
+                          </Typography>
+                          <ToggleButtonGroup
+                            fullWidth
+                            exclusive
+                            value={paymentMethod}
+                            onChange={(_, value) => {
+                              if (value) setPaymentMethod(value);
+                            }}
+                            disabled={transactionType !== 'sale'}
+                            size="small"
+                          >
+                            <ToggleButton value="cash" aria-label="Cash" sx={paymentToggleSx}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <CashIcon fontSize="small" />
+                                <span>Cash</span>
+                              </Stack>
+                            </ToggleButton>
+                            <ToggleButton value="gcash" aria-label="GCash" sx={paymentToggleSx}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <GcashIcon fontSize="small" />
+                                <span>GCash</span>
+                              </Stack>
+                            </ToggleButton>
+                          </ToggleButtonGroup>
+                        </Box>
+
+                        {transactionType === 'sale' && paymentMethod === 'gcash' ? (
+                          <TextField
+                            label="GCash Reference (optional)"
+                            value={gcashReference}
+                            onChange={(e) => setGcashReference(e.target.value)}
+                            helperText="GCash sale will be pending until manual approval."
+                            fullWidth
+                          />
+                        ) : null}
 
                         <TextField label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline minRows={2} fullWidth />
 

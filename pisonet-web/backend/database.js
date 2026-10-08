@@ -532,6 +532,11 @@ function initializeDatabase() {
         session_id INTEGER,
         description TEXT,
         sold_by TEXT,
+        payment_method TEXT NOT NULL DEFAULT 'cash',
+        payment_status TEXT NOT NULL DEFAULT 'approved',
+        payment_reference TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
         FOREIGN KEY (unit_id) REFERENCES units(id),
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       )
@@ -546,6 +551,48 @@ function initializeDatabase() {
     db.run('ALTER TABLE transactions ADD COLUMN sold_by TEXT', (err) => {
       if (err && !String(err.message || err).includes('duplicate column name')) {
         console.error('Error adding transactions.sold_by column:', err);
+      }
+    });
+
+    db.run("ALTER TABLE transactions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'cash'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.payment_method column:', err);
+      }
+    });
+
+    db.run("ALTER TABLE transactions ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'approved'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.payment_status column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE transactions ADD COLUMN payment_reference TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.payment_reference column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE transactions ADD COLUMN approved_by TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.approved_by column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE transactions ADD COLUMN approved_at TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.approved_at column:', err);
+      }
+    });
+
+    db.run("UPDATE transactions SET payment_method = 'cash' WHERE payment_method IS NULL OR TRIM(payment_method) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling transactions.payment_method column:', err);
+      }
+    });
+
+    db.run("UPDATE transactions SET payment_status = 'approved' WHERE payment_status IS NULL OR TRIM(payment_status) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling transactions.payment_status column:', err);
       }
     });
 
@@ -703,12 +750,59 @@ function initializeDatabase() {
         reference_no TEXT NOT NULL UNIQUE,
         subtotal REAL NOT NULL,
         payment_method TEXT NOT NULL,
+        payment_status TEXT NOT NULL DEFAULT 'approved',
+        payment_reference TEXT,
+        approved_by TEXT,
+        approved_at TEXT,
+        approval_notes TEXT,
         notes TEXT,
         sold_by TEXT NOT NULL,
         sold_at TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    db.run("ALTER TABLE product_sales ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'approved'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding product_sales.payment_status column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE product_sales ADD COLUMN payment_reference TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding product_sales.payment_reference column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE product_sales ADD COLUMN approved_by TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding product_sales.approved_by column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE product_sales ADD COLUMN approved_at TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding product_sales.approved_at column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE product_sales ADD COLUMN approval_notes TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding product_sales.approval_notes column:', err);
+      }
+    });
+
+    db.run("UPDATE product_sales SET payment_method = 'cash' WHERE payment_method IS NULL OR TRIM(payment_method) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling product_sales.payment_method column:', err);
+      }
+    });
+
+    db.run("UPDATE product_sales SET payment_status = 'approved' WHERE payment_status IS NULL OR TRIM(payment_status) = ''", (err) => {
+      if (err) {
+        console.error('Error backfilling product_sales.payment_status column:', err);
+      }
+    });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS product_sale_items (
@@ -764,10 +858,12 @@ function initializeDatabase() {
     db.run('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
     db.run('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_sales_sold_at ON product_sales(sold_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_product_sales_payment ON product_sales(payment_method, payment_status, sold_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_sale_items_sale_id ON product_sale_items(sale_id)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_inventory_logs_product_created ON product_inventory_logs(product_id, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_price_logs_product_created ON product_price_logs(product_id, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_type_timestamp ON transactions(transaction_type, timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_transactions_payment ON transactions(payment_method, payment_status, timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_entry_date ON opex_entries(entry_date)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_direction ON opex_entries(direction)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_ledger_group ON opex_entries(ledger_group)');

@@ -4,6 +4,11 @@ const db = require('../database');
 const { requireAdminAuth } = require('../admin-auth');
 
 const PAYMENT_METHOD_CASH = 'cash';
+const PAYMENT_METHOD_GCASH = 'gcash';
+const PAYMENT_STATUS_PENDING = 'pending';
+const PAYMENT_STATUS_APPROVED = 'approved';
+const PAYMENT_STATUS_REJECTED = 'rejected';
+const APPROVAL_REQUIRED_METHODS = new Set([PAYMENT_METHOD_GCASH]);
 const WRITE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const WRITE_RATE_LIMIT_MAX_REQUESTS = 60;
 const writeBuckets = new Map();
@@ -140,12 +145,38 @@ function parseDateParam(value, fieldName, fieldErrors) {
   return parsed.toISOString();
 }
 
+function requiresManualApproval(paymentMethod, transactionType) {
+  return APPROVAL_REQUIRED_METHODS.has(paymentMethod) && transactionType === 'sale';
+}
+
+function buildSaleLedgerDescription(transactionType, pricedItems, safeNotes) {
+  const txLabel = transactionType === 'return_invalid'
+    ? 'POS Return/Invalid'
+    : transactionType === 'internal_usage'
+      ? 'POS Internal Usage'
+      : 'POS Sale';
+
+  return `${txLabel}: ${pricedItems
+    .map((item) => `${item.sku}, ${item.name}, ${item.size || 'N/A'}, ${item.quantity}`)
+    .join(' | ')}${safeNotes ? `, Notes: ${safeNotes}` : ''}`;
+}
+
+function parseApprover(value) {
+  const normalized = String(value || '').trim();
+  return normalized || 'Admin';
+}
+
 function toSalePayload(row, items = []) {
   return {
     id: row.id,
     reference_no: row.reference_no,
     subtotal: Number(row.subtotal || 0),
     payment_method: row.payment_method,
+    payment_status: row.payment_status || PAYMENT_STATUS_APPROVED,
+    payment_reference: row.payment_reference || null,
+    approved_by: row.approved_by || null,
+    approved_at: row.approved_at || null,
+    approval_notes: row.approval_notes || null,
     notes: row.notes,
     sold_by: row.sold_by,
     sold_at: row.sold_at,
@@ -159,6 +190,11 @@ function toReceiptPayload(sale, items) {
     sold_at: sale.sold_at,
     sold_by: sale.sold_by,
     payment_method: sale.payment_method,
+    payment_status: sale.payment_status || PAYMENT_STATUS_APPROVED,
+    payment_reference: sale.payment_reference || null,
+    approved_by: sale.approved_by || null,
+    approved_at: sale.approved_at || null,
+    approval_notes: sale.approval_notes || null,
     notes: sale.notes,
     items,
     subtotal: Number(sale.subtotal || 0),
@@ -183,14 +219,20 @@ router.post('/', (req, res) => {
     : (body?.is_deduction === true || body?.is_deduction === 'true' || body?.is_deduction === 1 ? 'return_invalid' : 'sale');
   const isDeduction = transactionType !== 'sale';
 
-  const paymentMethod = String(body.payment_method || '').trim().toLowerCase();
+  const paymentMethod = String(body.payment_method || PAYMENT_METHOD_CASH).trim().toLowerCase();
+  const paymentReference = body.payment_reference == null ? null : String(body.payment_reference).trim();
   const soldBy = String(body.sold_by || '').trim();
   const notes = body.notes == null ? null : String(body.notes).trim();
   const itemsInput = Array.isArray(body.items) ? body.items : null;
   const amountOverride = body.amount_override == null ? null : Number(body.amount_override);
+  const paymentStatus = requiresManualApproval(paymentMethod, transactionType) ? PAYMENT_STATUS_PENDING : PAYMENT_STATUS_APPROVED;
 
-  if (paymentMethod !== PAYMENT_METHOD_CASH) {
-    fieldErrors.payment_method = ['payment_method must be cash'];
+  if (paymentMethod !== PAYMENT_METHOD_CASH && paymentMethod !== PAYMENT_METHOD_GCASH) {
+    fieldErrors.payment_method = ['payment_method must be either cash or gcash'];
+  }
+
+  if (paymentReference != null && paymentReference.length > 120) {
+    fieldErrors.payment_reference = ['payment_reference max length is 120'];
   }
 
   if (!soldBy || soldBy.length > 80) {
@@ -339,16 +381,25 @@ router.post('/', (req, res) => {
 
     let saleId;
     let referenceNo;
-    let transactionId;
+    let transactionId = null;
     const pendingReferenceNo = `PENDING-${Date.now()}`;
 
     db.run('BEGIN IMMEDIATE TRANSACTION');
 
     try {
       db.run(
-        `INSERT INTO product_sales (reference_no, subtotal, payment_method, notes, sold_by, sold_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [pendingReferenceNo, subtotal, PAYMENT_METHOD_CASH, safeNotes, soldBy, soldAt]
+        `INSERT INTO product_sales (
+           reference_no,
+           subtotal,
+           payment_method,
+           payment_status,
+           payment_reference,
+           notes,
+           sold_by,
+           sold_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [pendingReferenceNo, subtotal, paymentMethod, paymentStatus, paymentReference || null, safeNotes, soldBy, soldAt]
       );
       const saleIdRow = db.get('SELECT id FROM product_sales WHERE reference_no = ?', [pendingReferenceNo]);
       saleId = Number(saleIdRow?.id || 0);
@@ -416,27 +467,47 @@ router.post('/', (req, res) => {
         transactionType,
         totalQuantity,
         transactionAmount,
-        description: `${transactionType === 'return_invalid' ? 'POS Return/Invalid' : transactionType === 'internal_usage' ? 'POS Internal Usage' : 'POS Sale'}: ${pricedItems
-          .map((item) => `${item.sku}, ${item.name}, ${item.size || 'N/A'}, ${item.quantity}`)
-          .join(' | ')}${safeNotes ? `, Notes: ${safeNotes}` : ''}`,
+        description: buildSaleLedgerDescription(transactionType, pricedItems, safeNotes),
       });
 
-      const txInsert = db.run(
-        `INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description, sold_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          null,
-          ledgerEntry.amount,
-          ledgerEntry.denomination,
-          soldAt,
-          ledgerEntry.transaction_type,
-          null,
-          ledgerEntry.description,
-          soldBy,
-        ]
-      );
+      if (paymentStatus === PAYMENT_STATUS_APPROVED) {
+        const txInsert = db.run(
+          `INSERT INTO transactions (
+             unit_id,
+             amount,
+             denomination,
+             timestamp,
+             transaction_type,
+             session_id,
+             description,
+             sold_by,
+             payment_method,
+             payment_status,
+             payment_reference,
+             approved_by,
+             approved_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            null,
+            ledgerEntry.amount,
+            ledgerEntry.denomination,
+            soldAt,
+            ledgerEntry.transaction_type,
+            null,
+            ledgerEntry.description,
+            soldBy,
+            paymentMethod,
+            PAYMENT_STATUS_APPROVED,
+            paymentReference || null,
+            soldBy,
+            soldAt,
+          ]
+        );
 
-      transactionId = txInsert.lastID;
+        transactionId = txInsert.lastID;
+      }
+
       db.run('COMMIT');
     } catch (err) {
       try {
@@ -462,13 +533,23 @@ router.post('/', (req, res) => {
 
     return res.status(201).json({
       status: 'success',
-      message: transactionType === 'return_invalid' ? 'Return/Invalid recorded' : transactionType === 'internal_usage' ? 'Internal usage recorded' : 'Sale recorded',
+      message: paymentStatus === PAYMENT_STATUS_PENDING
+        ? 'Sale recorded and pending GCash approval'
+        : transactionType === 'return_invalid'
+          ? 'Return/Invalid recorded'
+          : transactionType === 'internal_usage'
+            ? 'Internal usage recorded'
+            : 'Sale recorded',
       data: {
         sale: {
           id: saleId,
           reference_no: referenceNo,
           subtotal,
-          payment_method: PAYMENT_METHOD_CASH,
+          payment_method: paymentMethod,
+          payment_status: paymentStatus,
+          payment_reference: paymentReference || null,
+          approved_by: paymentStatus === PAYMENT_STATUS_APPROVED ? soldBy : null,
+          approved_at: paymentStatus === PAYMENT_STATUS_APPROVED ? soldAt : null,
           notes: safeNotes,
           sold_by: soldBy,
           sold_at: soldAt,
@@ -492,7 +573,412 @@ router.post('/', (req, res) => {
           }).transaction_type,
           is_deduction: isDeduction,
           amount: transactionAmount,
+          payment_status: paymentStatus,
         },
+        approval_required: paymentStatus === PAYMENT_STATUS_PENDING,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/pending-payments', (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         subtotal,
+         payment_method,
+         payment_status,
+         payment_reference,
+         notes,
+         sold_by,
+         sold_at,
+         approved_by,
+         approved_at,
+         approval_notes
+       FROM product_sales
+       WHERE payment_method = ? AND payment_status = ?
+       ORDER BY sold_at ASC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_PENDING]
+    );
+
+    const pendingTotal = (rows || []).reduce((sum, row) => sum + Number(row.subtotal || 0), 0);
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => toSalePayload(row)),
+      meta: {
+        count: Number((rows || []).length),
+        pending_amount: Number(pendingTotal.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/payment-summary', (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT payment_method, payment_status, subtotal
+       FROM product_sales`,
+      []
+    );
+
+    const summary = {
+      cash_approved: 0,
+      gcash_approved: 0,
+      gcash_pending: 0,
+      gcash_rejected: 0,
+    };
+
+    (rows || []).forEach((row) => {
+      const method = String(row.payment_method || PAYMENT_METHOD_CASH).toLowerCase();
+      const status = String(row.payment_status || PAYMENT_STATUS_APPROVED).toLowerCase();
+      const subtotal = Number(row.subtotal || 0);
+
+      if (method === PAYMENT_METHOD_CASH && status === PAYMENT_STATUS_APPROVED) {
+        summary.cash_approved += subtotal;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_APPROVED) {
+        summary.gcash_approved += subtotal;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_PENDING) {
+        summary.gcash_pending += subtotal;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_REJECTED) {
+        summary.gcash_rejected += subtotal;
+      }
+    });
+
+    return res.json({
+      status: 'success',
+      data: {
+        cash_approved: Number(summary.cash_approved.toFixed(2)),
+        gcash_approved: Number(summary.gcash_approved.toFixed(2)),
+        gcash_pending: Number(summary.gcash_pending.toFixed(2)),
+        gcash_rejected: Number(summary.gcash_rejected.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.post('/:id/approve-gcash', (req, res) => {
+  const id = parsePositiveInt(req.params.id);
+  if (!id) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_id',
+        message: 'Invalid sale id',
+      },
+    });
+  }
+
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+
+  try {
+    const sale = db.get(
+      `SELECT id, reference_no, subtotal, payment_method, payment_status, payment_reference, sold_by, sold_at, notes
+       FROM product_sales
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!sale) {
+      return res.status(404).json({
+        status: 'error',
+        error: {
+          code: 'sale_not_found',
+          message: 'Sale not found',
+        },
+      });
+    }
+
+    if (String(sale.payment_method || '').toLowerCase() !== PAYMENT_METHOD_GCASH) {
+      return res.status(400).json({
+        status: 'error',
+        error: {
+          code: 'invalid_payment_method',
+          message: 'Only GCash sales can be approved by this endpoint',
+        },
+      });
+    }
+
+    if (String(sale.payment_status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+      return res.status(409).json({
+        status: 'error',
+        error: {
+          code: 'already_processed',
+          message: 'Sale is no longer pending',
+        },
+      });
+    }
+
+    const items = db.all(
+      `SELECT psi.quantity, p.sku, p.name, p.size
+       FROM product_sale_items psi
+       JOIN products p ON p.id = psi.product_id
+       WHERE psi.sale_id = ?
+       ORDER BY psi.id ASC`,
+      [id]
+    );
+
+    const totalQuantity = (items || []).reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const approvedAt = new Date().toISOString();
+    const ledgerEntry = normalizePosTransactionLedgerEntry({
+      transactionType: 'sale',
+      totalQuantity,
+      transactionAmount: Number(sale.subtotal || 0),
+      description: `POS Sale (GCash Approved): ${(items || []).map((item) => `${item.sku}, ${item.name}, ${item.size || 'N/A'}, ${item.quantity}`).join(' | ')}${sale.notes ? `, Notes: ${sale.notes}` : ''}`,
+    });
+
+    db.run('BEGIN IMMEDIATE TRANSACTION');
+
+    let transactionId = null;
+    try {
+      const txInsert = db.run(
+        `INSERT INTO transactions (
+           unit_id,
+           amount,
+           denomination,
+           timestamp,
+           transaction_type,
+           session_id,
+           description,
+           sold_by,
+           payment_method,
+           payment_status,
+           payment_reference,
+           approved_by,
+           approved_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          null,
+          ledgerEntry.amount,
+          ledgerEntry.denomination,
+          approvedAt,
+          ledgerEntry.transaction_type,
+          null,
+          ledgerEntry.description,
+          sale.sold_by,
+          PAYMENT_METHOD_GCASH,
+          PAYMENT_STATUS_APPROVED,
+          sale.payment_reference || null,
+          approvedBy,
+          approvedAt,
+        ]
+      );
+
+      transactionId = Number(txInsert?.lastID || 0);
+
+      db.run(
+        `UPDATE product_sales
+         SET payment_status = ?, approved_by = ?, approved_at = ?, approval_notes = ?
+         WHERE id = ?`,
+        [PAYMENT_STATUS_APPROVED, approvedBy, approvedAt, approvalNotes || null, id]
+      );
+
+      db.run('COMMIT');
+    } catch (err) {
+      try {
+        db.run('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Rollback failed:', rollbackErr.message);
+      }
+      throw err;
+    }
+
+    db.saveNow();
+
+    return res.json({
+      status: 'success',
+      message: 'GCash payment approved',
+      data: {
+        sale_id: id,
+        reference_no: sale.reference_no,
+        payment_status: PAYMENT_STATUS_APPROVED,
+        approved_by: approvedBy,
+        approved_at: approvedAt,
+        transaction_id: transactionId,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.post('/:id/reject-gcash', (req, res) => {
+  const id = parsePositiveInt(req.params.id);
+  if (!id) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_id',
+        message: 'Invalid sale id',
+      },
+    });
+  }
+
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+
+  try {
+    const sale = db.get(
+      `SELECT id, reference_no, payment_method, payment_status, sold_by
+       FROM product_sales
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!sale) {
+      return res.status(404).json({
+        status: 'error',
+        error: {
+          code: 'sale_not_found',
+          message: 'Sale not found',
+        },
+      });
+    }
+
+    if (String(sale.payment_method || '').toLowerCase() !== PAYMENT_METHOD_GCASH) {
+      return res.status(400).json({
+        status: 'error',
+        error: {
+          code: 'invalid_payment_method',
+          message: 'Only GCash sales can be rejected by this endpoint',
+        },
+      });
+    }
+
+    if (String(sale.payment_status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+      return res.status(409).json({
+        status: 'error',
+        error: {
+          code: 'already_processed',
+          message: 'Sale is no longer pending',
+        },
+      });
+    }
+
+    const items = db.all(
+      `SELECT psi.product_id, psi.quantity, p.quantity_in_stock, p.final_price
+       FROM product_sale_items psi
+       JOIN products p ON p.id = psi.product_id
+       WHERE psi.sale_id = ?
+       ORDER BY psi.id ASC`,
+      [id]
+    );
+
+    const processedAt = new Date().toISOString();
+
+    db.run('BEGIN IMMEDIATE TRANSACTION');
+
+    try {
+      (items || []).forEach((item) => {
+        const qty = Number(item.quantity || 0);
+        const beforeQty = Number(item.quantity_in_stock || 0);
+        const afterQty = beforeQty + qty;
+
+        db.run(
+          'UPDATE products SET quantity_in_stock = quantity_in_stock + ?, updated_at = ? WHERE id = ?',
+          [qty, processedAt, item.product_id]
+        );
+
+        db.run(
+          `INSERT INTO product_inventory_logs (
+             product_id,
+             event_type,
+             quantity_delta,
+             quantity_before,
+             quantity_after,
+             unit_cost,
+             notes,
+             created_by,
+             created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.product_id,
+            'POS_GCASH_REJECT_RESTOCK',
+            qty,
+            beforeQty,
+            afterQty,
+            Number(item.final_price || 0),
+            approvalNotes || 'GCash payment rejected',
+            approvedBy,
+            processedAt,
+          ]
+        );
+      });
+
+      db.run(
+        `UPDATE product_sales
+         SET payment_status = ?, approved_by = ?, approved_at = ?, approval_notes = ?
+         WHERE id = ?`,
+        [PAYMENT_STATUS_REJECTED, approvedBy, processedAt, approvalNotes || null, id]
+      );
+
+      db.run('COMMIT');
+    } catch (err) {
+      try {
+        db.run('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Rollback failed:', rollbackErr.message);
+      }
+      throw err;
+    }
+
+    db.saveNow();
+
+    if (global.broadcast) {
+      global.broadcast({
+        type: 'PRODUCT_STOCK_UPDATED',
+        product_ids: (items || []).map((item) => item.product_id),
+      });
+    }
+
+    return res.json({
+      status: 'success',
+      message: 'GCash payment rejected and stock restored',
+      data: {
+        sale_id: id,
+        reference_no: sale.reference_no,
+        payment_status: PAYMENT_STATUS_REJECTED,
+        approved_by: approvedBy,
+        approved_at: processedAt,
       },
     });
   } catch (err) {
@@ -512,12 +998,20 @@ router.get('/', (req, res) => {
   const page = Number.parseInt(req.query.page, 10) || 1;
   const limit = Number.parseInt(req.query.limit, 10) || 20;
   const search = String(req.query.search || '').trim();
+  const paymentMethod = String(req.query.payment_method || '').trim().toLowerCase();
+  const paymentStatus = String(req.query.payment_status || '').trim().toLowerCase();
   const startDate = parseDateParam(req.query.start_date, 'start_date', fieldErrors);
   const endDate = parseDateParam(req.query.end_date, 'end_date', fieldErrors);
 
   if (!Number.isInteger(page) || page < 1) fieldErrors.page = ['page must be an integer >= 1'];
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) fieldErrors.limit = ['limit must be an integer between 1 and 100'];
   if (startDate && endDate && startDate > endDate) fieldErrors.date_range = ['start_date must be <= end_date'];
+  if (paymentMethod && ![PAYMENT_METHOD_CASH, PAYMENT_METHOD_GCASH].includes(paymentMethod)) {
+    fieldErrors.payment_method = ['payment_method must be either cash or gcash'];
+  }
+  if (paymentStatus && ![PAYMENT_STATUS_PENDING, PAYMENT_STATUS_APPROVED, PAYMENT_STATUS_REJECTED].includes(paymentStatus)) {
+    fieldErrors.payment_status = ['payment_status must be pending, approved, or rejected'];
+  }
 
   if (Object.keys(fieldErrors).length > 0) {
     return sendValidationError(res, fieldErrors);
@@ -530,6 +1024,14 @@ router.get('/', (req, res) => {
     where.push('(UPPER(reference_no) LIKE ? OR UPPER(sold_by) LIKE ?)');
     const pattern = `%${search.toUpperCase()}%`;
     params.push(pattern, pattern);
+  }
+  if (paymentMethod) {
+    where.push('LOWER(payment_method) = ?');
+    params.push(paymentMethod);
+  }
+  if (paymentStatus) {
+    where.push('LOWER(payment_status) = ?');
+    params.push(paymentStatus);
   }
   if (startDate) {
     where.push('sold_at >= ?');
@@ -546,7 +1048,7 @@ router.get('/', (req, res) => {
   try {
     const totalRow = db.get(`SELECT COUNT(*) as total FROM product_sales ${whereSql}`, params);
     const rows = db.all(
-      `SELECT id, reference_no, subtotal, payment_method, notes, sold_by, sold_at
+      `SELECT id, reference_no, subtotal, payment_method, payment_status, payment_reference, approved_by, approved_at, approval_notes, notes, sold_by, sold_at
        FROM product_sales
        ${whereSql}
        ORDER BY sold_at DESC
@@ -600,6 +1102,7 @@ router.get('/reports/daily', (req, res) => {
              COALESCE(SUM(CASE WHEN ps.subtotal > 0 THEN ps.subtotal ELSE 0 END), 0) AS gross_sales
            FROM product_sales ps
            WHERE datetime(ps.sold_at, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+             AND LOWER(COALESCE(ps.payment_status, 'approved')) = 'approved'
            GROUP BY DATE(ps.sold_at, 'localtime')
          ),
          items_day AS (
@@ -609,7 +1112,9 @@ router.get('/reports/daily', (req, res) => {
              COALESCE(SUM(CASE WHEN psi.line_total > 0 THEN psi.line_total - (psi.unit_base_price * psi.quantity) ELSE 0 END), 0) AS total_profit,
              COALESCE(SUM(CASE WHEN psi.line_total > 0 THEN psi.quantity ELSE 0 END), 0) AS sales_quantity
            FROM product_sale_items psi
+           JOIN product_sales ps ON ps.id = psi.sale_id
            WHERE datetime(psi.created_at, 'localtime') >= datetime('now', 'localtime', 'start of day', ?)
+             AND LOWER(COALESCE(ps.payment_status, 'approved')) = 'approved'
            GROUP BY DATE(psi.created_at, 'localtime')
          ),
          net_store_day AS (
@@ -721,7 +1226,9 @@ router.get('/:id', (req, res) => {
 
   try {
     const sale = db.get(
-      'SELECT id, reference_no, subtotal, payment_method, notes, sold_by, sold_at FROM product_sales WHERE id = ?',
+      `SELECT id, reference_no, subtotal, payment_method, payment_status, payment_reference, approved_by, approved_at, approval_notes, notes, sold_by, sold_at
+       FROM product_sales
+       WHERE id = ?`,
       [id]
     );
     if (!sale) {
@@ -791,7 +1298,9 @@ router.get('/:id/receipt', (req, res) => {
 
   try {
     const sale = db.get(
-      'SELECT id, reference_no, subtotal, payment_method, notes, sold_by, sold_at FROM product_sales WHERE id = ?',
+      `SELECT id, reference_no, subtotal, payment_method, payment_status, payment_reference, approved_by, approved_at, approval_notes, notes, sold_by, sold_at
+       FROM product_sales
+       WHERE id = ?`,
       [id]
     );
 
@@ -845,3 +1354,5 @@ router.get('/:id/receipt', (req, res) => {
 module.exports = router;
 module.exports.calculatePosSaleSubtotal = calculatePosSaleSubtotal;
 module.exports.normalizePosTransactionLedgerEntry = normalizePosTransactionLedgerEntry;
+module.exports.normalizePosReportReturnAmount = normalizePosReportReturnAmount;
+module.exports.normalizePosReportInternalUsageAmount = normalizePosReportInternalUsageAmount;
