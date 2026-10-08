@@ -16,6 +16,7 @@ const transactionsRouter = require('./routes/transactions');
 const settingsRouter = require('./routes/settings');
 const productsRouter = require('./routes/products');
 const posSalesRouter = require('./routes/pos-sales');
+const opexRouter = require('./routes/opex');
 const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('./pricing');
 
 const app = express();
@@ -472,6 +473,7 @@ app.use('/api/transactions', transactionsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/pos-sales', posSalesRouter);
+app.use('/api/opex', opexRouter);
 
 // Kiosk unit selection endpoints
 app.get('/api/kiosk/selection', (req, res) => {

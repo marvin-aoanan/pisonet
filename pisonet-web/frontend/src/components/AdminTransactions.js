@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Box, Typography, Chip, LinearProgress } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import CustomGridToolbar from './CustomGridToolbar';
+import { formatPeso } from '../utils/currency';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
@@ -67,7 +68,7 @@ function AdminTransactions({ adminPassword }) {
     const denomination = Number(row?.denomination || 0);
     const type = row?.transaction_type;
 
-    if (type === 'product_order') {
+    if (type === 'product_order' || type === 'internal_usage') {
       return 0;
     }
 
@@ -94,7 +95,7 @@ function AdminTransactions({ adminPassword }) {
 
   const isQuantityBasedTransaction = (row) => {
     const type = String(row?.transaction_type || '');
-    return type === 'product_order' || type.startsWith('print_');
+    return type === 'product_order' || type === 'internal_usage' || type.startsWith('print_');
   };
 
   const getEquivalentPesoAmount = (row) => {
@@ -204,6 +205,7 @@ function AdminTransactions({ adminPassword }) {
           coin_acceptor: { label: 'Coin Acceptor', color: 'success' },
           gateway: { label: 'Gateway', color: 'info' },
           product_order: { label: 'Product Order', color: 'info' },
+          internal_usage: { label: 'Internal Usage', color: 'secondary' },
           admin_add: { label: 'Admin Add', color: 'primary' },
           admin_deduct: { label: 'Admin Deduct', color: 'warning' },
           open_time: { label: 'Open Time', color: 'secondary' },
@@ -252,7 +254,7 @@ function AdminTransactions({ adminPassword }) {
           return (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '100%', width: '100%' }}>
               <Typography color={pesoAmount >= 0 ? 'primary.main' : 'warning.main'} fontWeight="bold">
-                {sign}₱{Math.abs(pesoAmount).toFixed(2)}
+                {`${sign}${formatPeso(Math.abs(pesoAmount))}`}
               </Typography>
             </Box>
           );
@@ -263,7 +265,7 @@ function AdminTransactions({ adminPassword }) {
               color={Number(params.value) < 0 ? 'warning.main' : 'success.main'}
               fontWeight="bold"
             >
-              {Number(params.value) < 0 ? '-' : '+'}₱{Math.abs(Number(params.value)).toFixed(2)}
+              {`${Number(params.value) < 0 ? '-' : '+'}${formatPeso(Math.abs(Number(params.value)))}`}
             </Typography>
           </Box>
         );

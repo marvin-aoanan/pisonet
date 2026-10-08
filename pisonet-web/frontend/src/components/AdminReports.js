@@ -12,6 +12,7 @@ import {
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { ChartsTooltipContainer, useAxesTooltip } from '@mui/x-charts/ChartsTooltip';
+import { formatNumber, formatPeso } from '../utils/currency';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
@@ -52,7 +53,7 @@ function PcTooltipContent() {
       ))}
       <Box sx={{ borderTop: 1, borderColor: 'divider', px: 1.5, py: 0.75 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          Total Sales: ₱{totals.revenue.toFixed(2)}
+          Total Sales: {formatPeso(totals.revenue)}
         </Typography>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
           Total Hours: {formatHoursWithPadding(totals.hours)}
@@ -477,9 +478,9 @@ function AdminReports({ adminPassword }) {
         valueFormatter: (value, context) => {
           const index = context?.dataIndex;
           const point = typeof index === 'number' ? dailyByUnitChartData[index] : null;
-          const revenue = Number(value || 0).toFixed(2);
+          const revenue = formatPeso(value);
           const hours = formatHoursWithPadding(point?.[`${pc} Hours`] || 0);
-          return `${pc} - Sales: ₱${revenue} | Hours: ${hours}`;
+          return `${pc} - Sales: ${revenue} | Hours: ${hours}`;
         },
       });
       series.push({
@@ -790,25 +791,25 @@ function AdminReports({ adminPassword }) {
                 dataKey: 'totalSales',
                 label: 'Total Sales',
                 color: '#1B5E20',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => formatPeso(value),
               },
               {
                 dataKey: 'pcRental',
                 label: 'PC Rental',
                 color: '#2E96FF',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => formatPeso(value),
               },
               {
                 dataKey: 'store',
                 label: 'Store',
                 color: '#EF6C00',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => formatPeso(value),
               },
               {
                 dataKey: 'print',
                 label: 'Print',
                 color: '#FBC02D',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => formatPeso(value),
               },
             ]}
             slotProps={{
@@ -915,19 +916,19 @@ function AdminReports({ adminPassword }) {
               <ToggleButton value="yearly">Yearly</ToggleButton>
             </ToggleButtonGroup>
             <Typography variant="body2" color="text.secondary">
-              Gross Sales: ₱{productSalesTotals.grossSales.toFixed(2)}
+              Gross Sales: {formatPeso(productSalesTotals.grossSales)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Returns: ₱{productSalesTotals.returns.toFixed(2)}
+              Returns: {formatPeso(productSalesTotals.returns)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Internal Usage: ₱{productSalesTotals.internalUsage.toFixed(2)}
+              Internal Usage: {formatPeso(productSalesTotals.internalUsage)}
             </Typography>
             <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
-              Net Store Sales: ₱{productSalesTotals.netStoreSales.toFixed(2)}
+              Net Store Sales: {formatPeso(productSalesTotals.netStoreSales)}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Profit: ₱{productSalesTotals.totalProfit.toFixed(2)} | Orders: {productSalesTotals.totalOrders.toLocaleString('en-US')} | Items Sold: {productSalesTotals.totalItems.toLocaleString('en-US')}
+              Profit: {formatPeso(productSalesTotals.totalProfit)} | Orders: {productSalesTotals.totalOrders.toLocaleString('en-US')} | Items Sold: {productSalesTotals.totalItems.toLocaleString('en-US')}
             </Typography>
           </Box>
         </Box>
@@ -956,7 +957,7 @@ function AdminReports({ adminPassword }) {
                 valueFormatter: (value, context) => {
                   const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
                   const qty = Number(point?.sales_quantity ?? point?.items_sold ?? 0);
-                  return `Store Sales: ₱${Number(value || 0).toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                  return `Store Sales: ${formatPeso(value)} | Qty: ${qty.toFixed(0)}`;
                 },
               },
               {
@@ -969,7 +970,7 @@ function AdminReports({ adminPassword }) {
                   const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
                   const qty = Number(point?.total_return_quantity ?? 0);
                   const absValue = Math.abs(Number(value || 0));
-                  return `Returns: ₱${absValue.toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                  return `Returns: ${formatPeso(absValue)} | Qty: ${qty.toFixed(0)}`;
                 },
               },
               {
@@ -982,7 +983,7 @@ function AdminReports({ adminPassword }) {
                   const point = typeof context?.dataIndex === 'number' ? productSalesChartData[context.dataIndex] : null;
                   const qty = Number(point?.total_internal_usage_quantity ?? 0);
                   const absValue = Math.abs(Number(value || 0));
-                  return `Internal Usage: ₱${absValue.toFixed(2)} | Qty: ${qty.toFixed(0)}`;
+                  return `Internal Usage: ${formatPeso(absValue)} | Qty: ${qty.toFixed(0)}`;
                 },
               },
               {
@@ -991,7 +992,7 @@ function AdminReports({ adminPassword }) {
                 yAxisId: 'salesAxis',
                 color: '#8e24aa',
                 stack: 'profit',
-                valueFormatter: (value) => `Profit: ₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => `Profit: ${formatPeso(value)}`,
               },
               {
                 dataKey: 'order_count',
@@ -1044,16 +1045,16 @@ function AdminReports({ adminPassword }) {
               <ToggleButton value="yearly">Yearly</ToggleButton>
             </ToggleButtonGroup>
             <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
-              Total Print Sales: ₱{printSalesTotals.totalPrintSales.toFixed(2)}
+              Total Print Sales: {formatPeso(printSalesTotals.totalPrintSales)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Document: ₱{printSalesTotals.documentSales.toFixed(2)}
+              Document: {formatPeso(printSalesTotals.documentSales)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Photo: ₱{printSalesTotals.photoSales.toFixed(2)}
+              Photo: {formatPeso(printSalesTotals.photoSales)}
             </Typography>
             <Typography variant="body2" color="warning.main">
-              Print Errors: ₱{Math.abs(printSalesTotals.printErrors).toFixed(2)}
+              Print Errors: {formatPeso(Math.abs(printSalesTotals.printErrors))}
             </Typography>
           </Box>
         </Box>
@@ -1076,7 +1077,7 @@ function AdminReports({ adminPassword }) {
                 yAxisId: 'printSalesAxis',
                 color: '#2e7d32',
                 stack: 'printTotal',
-                valueFormatter: (value) => `Total Print Sales: ₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => `Total Print Sales: ${formatPeso(value)}`,
               },
               {
                 dataKey: 'document_sales',
@@ -1084,7 +1085,7 @@ function AdminReports({ adminPassword }) {
                 yAxisId: 'printSalesAxis',
                 color: '#1565c0',
                 stack: 'printTypes',
-                valueFormatter: (value) => `Document: ₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => `Document: ${formatPeso(value)}`,
               },
               {
                 dataKey: 'photo_sales',
@@ -1092,7 +1093,7 @@ function AdminReports({ adminPassword }) {
                 yAxisId: 'printSalesAxis',
                 color: '#8e24aa',
                 stack: 'printTypes',
-                valueFormatter: (value) => `Photo: ₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => `Photo: ${formatPeso(value)}`,
               },
               {
                 dataKey: 'print_errors',
@@ -1100,7 +1101,7 @@ function AdminReports({ adminPassword }) {
                 yAxisId: 'printSalesAxis',
                 color: '#d32f2f',
                 stack: 'printErrors',
-                valueFormatter: (value) => `Print Errors: ₱${Math.abs(Number(value || 0)).toFixed(2)}`,
+                valueFormatter: (value) => `Print Errors: ${formatPeso(Math.abs(Number(value || 0)))}`,
               },
             ]}
             slotProps={{
@@ -1121,10 +1122,10 @@ function AdminReports({ adminPassword }) {
           </Typography>
           <Box sx={{ textAlign: 'right' }}>
             <Typography variant="body2" color="text.secondary">
-              Total Hours: {totalChartHours.toFixed(2)} h
+              Total Hours: {formatHoursWithPadding(totalChartHours)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Total Sales (admin adjustments normalized): ₱{totalChartRevenue.toFixed(2)}
+              Total Sales (admin adjustments normalized): {formatPeso(totalChartRevenue)}
             </Typography>
           </Box>
         </Box>
@@ -1148,7 +1149,7 @@ function AdminReports({ adminPassword }) {
                 dataKey: 'revenue',
                 label: 'Sales (₱)',
                 yAxisId: 'revenueAxis',
-                valueFormatter: (value) => `₱${Number(value || 0).toFixed(2)}`,
+                valueFormatter: (value) => formatPeso(value),
               },
               {
                 dataKey: 'usage_hours',
@@ -1172,12 +1173,12 @@ function AdminReports({ adminPassword }) {
               Total Estimated Consumption: {totalEstimatedKwh.toFixed(2)} kWh
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Total Estimated Cost: ₱{totalEstimatedCost.toFixed(2)}
+              Total Estimated Cost: {formatPeso(totalEstimatedCost)}
             </Typography>
           </Box>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Includes estimated cost at ₱{Number(configuredRate).toFixed(2)}/kWh from Settings.
+          Includes estimated cost at {formatPeso(Number(configuredRate))}/kWh from Settings.
         </Typography>
         {!electricityByUnitRows.length && <LinearProgress sx={{ mb: 2 }} />}
         {electricityByUnitChartData.length > 0 && (
@@ -1205,12 +1206,9 @@ function AdminReports({ adminPassword }) {
               },
               {
                 dataKey: 'estimated_cost',
-                label: `Estimated Cost (₱ @ ${Number(configuredRate).toFixed(2)}/kWh)`,
+                label: `Estimated Cost (@ ${formatPeso(Number(configuredRate))}/kWh)`,
                 yAxisId: 'costAxis',
-                valueFormatter: (value) => {
-                  const cost = Number(value || 0);
-                  return `₱${cost.toFixed(2)}`;
-                }
+                valueFormatter: (value) => formatPeso(value)
               }
             ]}
             height={320}
@@ -1225,7 +1223,7 @@ function AdminReports({ adminPassword }) {
               Estimated Electricity Consumption ({activeWindowLabel})
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Based on purchased/used PC time and configured wattage of {configuredWattage}W per PC at ₱{Number(configuredRate).toFixed(2)}/kWh from Settings.
+              Based on purchased/used PC time and configured wattage of {configuredWattage}W per PC at {formatPeso(Number(configuredRate))}/kWh from Settings.
             </Typography>
           </Box>
           <ToggleButtonGroup
@@ -1270,12 +1268,9 @@ function AdminReports({ adminPassword }) {
               }
             }, {
               dataKey: 'estimated_cost',
-              label: `Estimated Cost (₱ @ ${Number(configuredRate).toFixed(2)}/kWh)`,
+              label: `Estimated Cost (₱ @ ${formatPeso(Number(configuredRate))}/kWh)`,
               yAxisId: 'costAxis',
-              valueFormatter: (value) => {
-                const cost = Number(value || 0);
-                return `₱${cost.toFixed(2)}`;
-              }
+              valueFormatter: (value) => formatPeso(value)
             }]}
             height={320}
           />

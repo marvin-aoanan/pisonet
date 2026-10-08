@@ -10,6 +10,7 @@ import {
   Chip
 } from '@mui/material';
 import { AccessTime as TimeIcon, Monitor as PcIcon } from '@mui/icons-material';
+import { formatPeso } from '../utils/currency';
 
 function CustomerView({ units, onSelectUnit }) {
   const isMaintenanceMode = (unit) => String(unit?.status_mode || 'active').toLowerCase() === 'maintenance';
@@ -124,7 +125,7 @@ function CustomerView({ units, onSelectUnit }) {
                     TO PAY:
                   </Typography>
                   <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: 'warning.main' }}>
-                    ₱{(unit.open_time_amount || 0).toFixed(2)}
+                    {formatPeso(unit.open_time_amount || 0)}
                   </Typography>
                 </Box>
               </Box>

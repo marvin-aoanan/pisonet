@@ -16,6 +16,7 @@ import { PieChart } from '@mui/x-charts/PieChart';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { areaElementClasses, lineElementClasses, chartsAxisHighlightClasses } from '@mui/x-charts';
+import { formatNumber, formatPeso } from '../utils/currency';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
@@ -63,22 +64,78 @@ function SalesBreakdownPie({ breakdown }) {
       />
       <Box sx={{ minWidth: 0 }}>
         <Typography variant="body2" color="text.secondary">
-          PC Rental: ₱{pcRental.toFixed(2)}
+          PC Rental: {formatPeso(pcRental)}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Print: ₱{print.toFixed(2)}
+          Print: {formatPeso(print)}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Store: ₱{store.toFixed(2)}
+          Store: {formatPeso(store)}
         </Typography>
       </Box>
     </Box>
   );
 }
 
-function AdminDashboard({ units = [] }) {
+function OpexBreakdownPie({ revenue, expense, profit }) {
+  const revenueValue = Number(revenue || 0);
+  const expenseValue = Number(expense || 0);
+  const total = revenueValue + expenseValue;
+
+  return (
+    <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <PieChart
+        series={[
+          {
+            innerRadius: 26,
+            outerRadius: 64,
+            cx: 70,
+            cy: 70,
+            paddingAngle: 2,
+            cornerRadius: 4,
+            arcLabelMinAngle: 18,
+            arcLabel: (item) => {
+              if (!total) return '';
+              const percent = (Number(item.value || 0) / total) * 100;
+              return `${item.label} ${percent.toFixed(0)}%`;
+            },
+            data: [
+              { id: 'revenue', value: revenueValue, label: 'Revenue', color: '#2E96FF' },
+              { id: 'expense', value: expenseValue, label: 'Expense', color: '#EF6C00' },
+            ],
+          },
+        ]}
+        width={140}
+        height={140}
+        sx={{
+          '& .MuiChartsLegend-root': { display: 'none' },
+          '& .MuiPieArcLabel-root': {
+            fill: '#f5f5f5',
+            fontSize: 11,
+            fontWeight: 700,
+          },
+        }}
+        slotProps={{ legend: { hidden: true } }}
+      />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" color="text.secondary">
+          Revenue: {formatPeso(revenueValue)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Expense: {formatPeso(expenseValue)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Profit: {formatPeso(Number(profit || 0))}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
+function AdminDashboard({ units = [], adminPassword }) {
   const [dailyRevenue, setDailyRevenue] = useState([]);
   const [revenueSummary, setRevenueSummary] = useState(null);
+  const [opexSummary, setOpexSummary] = useState(null);
   const [monthlyBreakdown, setMonthlyBreakdown] = useState(null);
   const [unitRevenueRows, setUnitRevenueRows] = useState([]);
   const [weekIndex, setWeekIndex] = useState(null);
@@ -174,6 +231,27 @@ function AdminDashboard({ units = [] }) {
 
     fetchRevenueSummary();
   }, []);
+
+  useEffect(() => {
+    const fetchOpexSummary = async () => {
+      if (!adminPassword) {
+        setOpexSummary(null);
+        return;
+      }
+
+      try {
+        const response = await axios.get(`${API_URL}/opex/summary`, {
+          headers: { 'x-admin-password': adminPassword },
+        });
+        setOpexSummary(response.data?.data || null);
+      } catch (err) {
+        console.error('Error fetching OPEX summary for dashboard ROI:', err);
+        setOpexSummary(null);
+      }
+    };
+
+    fetchOpexSummary();
+  }, [adminPassword]);
 
   useEffect(() => {
     const fetchMonthlyBreakdown = async () => {
@@ -387,6 +465,17 @@ function AdminDashboard({ units = [] }) {
     };
   }, [monthlyBreakdown, monthlyRevenueData]);
 
+  const roiDisplay = useMemo(() => {
+    const roiPercent = opexSummary?.roi_percent;
+    return {
+      operatingRevenue: Number(opexSummary?.operating_revenue || 0),
+      operatingExpense: Number(opexSummary?.operating_expense || 0),
+      operatingProfit: Number(opexSummary?.operating_profit || 0),
+      investedCapital: Number(opexSummary?.invested_capital || 0),
+      roiPercent: Number.isFinite(roiPercent) ? roiPercent : null,
+    };
+  }, [opexSummary]);
+
   return (
     <Box>
       <Grid container sx={{ mb: 4, flexDirection: isMobile ? 'column' : 'row', alignItems: 'stretch', justifyContent: 'space-between' }}>
@@ -450,7 +539,7 @@ function AdminDashboard({ units = [] }) {
               <Typography color="text.secondary" variant="body2" gutterBottom>
                 {salesCards[0].periodLabel}
               </Typography>
-              <Typography variant="h5">Total: ₱{salesCards[0].total.toFixed(2)}</Typography>
+              <Typography variant="h5">Total: {formatPeso(salesCards[0].total)}</Typography>
               <SalesBreakdownPie breakdown={salesCards[0].breakdown} />
             </CardContent>
           </Card>
@@ -462,7 +551,7 @@ function AdminDashboard({ units = [] }) {
               <Typography color="text.secondary" variant="body2" gutterBottom>
                 {salesCards[1].periodLabel}
               </Typography>
-              <Typography variant="h5">Total: ₱{salesCards[1].total.toFixed(2)}</Typography>
+              <Typography variant="h5">Total: {formatPeso(salesCards[1].total)}</Typography>
               <SalesBreakdownPie breakdown={salesCards[1].breakdown} />
             </CardContent>
           </Card>
@@ -475,7 +564,7 @@ function AdminDashboard({ units = [] }) {
                 <Typography color="text.secondary" variant="body2" gutterBottom>
                   {salesCards[2].periodLabel}
                 </Typography>
-                <Typography variant="h5">Total: ₱{salesCards[2].total.toFixed(2)}</Typography>
+                <Typography variant="h5">Total: {formatPeso(salesCards[2].total)}</Typography>
                 <SalesBreakdownPie breakdown={salesCards[2].breakdown} />
               </Box>
               {sparklineData.length > 0 && (
@@ -535,9 +624,9 @@ function AdminDashboard({ units = [] }) {
 
       </Grid>
 
-      <Grid spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12}>
-          <Card elevation={3} sx={{ width: '100%' }}>
+      <Grid container spacing={2} sx={{ mb: 4, flexDirection: isMobile ? 'column' : 'row', alignItems: 'stretch', justifyContent: 'space-between' }}>
+        <Grid size={8} >
+          <Card elevation={2} sx={{height: '100%' }}>
             <CardContent>
               <Typography color="text.secondary" gutterBottom sx={{ mb: 0 }}>
                 This Year Overview ({yearlyOverviewData.year})
@@ -581,6 +670,24 @@ function AdminDashboard({ units = [] }) {
                   margin={{ top: 10, bottom: 0, left: 50, right: 10 }}
                 />
               )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={4} >
+          <Card elevation={2} sx={{height: '100%' }}>
+            <CardContent>
+              <Typography color="text.secondary" variant="body2" gutterBottom>
+                OPEX ROI
+              </Typography>
+              <Typography variant="h5">
+                {roiDisplay.roiPercent == null ? 'N/A' : `${formatNumber(roiDisplay.roiPercent)}%`}
+              </Typography>
+              <OpexBreakdownPie
+                revenue={roiDisplay.operatingRevenue}
+                expense={roiDisplay.operatingExpense}
+                profit={roiDisplay.operatingProfit}
+              />
             </CardContent>
           </Card>
         </Grid>

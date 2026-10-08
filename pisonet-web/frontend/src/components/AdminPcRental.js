@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { formatPeso } from '../utils/currency';
 import {
   Paper,
   Button,
@@ -507,14 +508,14 @@ function AdminPcRental({
                     </Typography>
                     {unit.open_time === 1 && (
                       <Typography variant="caption" color="warning.main" display="block">
-                        ₱{(unit.open_time_amount || 0).toFixed(2)} owed
+                        {formatPeso(unit.open_time_amount || 0)} owed
                       </Typography>
                     )}
                   </Box>
                   <Box sx={{ textAlign: 'right' }}>
                     <Typography variant="caption" color="text.secondary" display="block">Sales</Typography>
                     <Typography color="secondary.main" fontWeight="bold" variant="h6">
-                      ₱{getSessionRevenueDisplay(unit).toFixed(2)}
+                      {formatPeso(getSessionRevenueDisplay(unit))}
                     </Typography>
                   </Box>
                 </Box>
@@ -662,13 +663,13 @@ function AdminPcRental({
                       </Typography>
                       {unit.open_time === 1 && (
                         <Typography variant="caption" color="warning.main" display="block">
-                          ₱{(unit.open_time_amount || 0).toFixed(2)} owed
+                          {formatPeso(unit.open_time_amount || 0)} owed
                         </Typography>
                       )}
                     </Box>
                     <Box sx={{ textAlign: 'right' }}>
                       <Typography variant="caption" color="text.secondary" display="block">Session Sales</Typography>
-                      <Typography color="secondary.main" fontWeight="bold" variant="h6">₱{getSessionRevenueDisplay(unit).toFixed(2)}</Typography>
+                      <Typography color="secondary.main" fontWeight="bold" variant="h6">{formatPeso(getSessionRevenueDisplay(unit))}</Typography>
                     </Box>
                   </Box>
 
@@ -775,7 +776,7 @@ function AdminPcRental({
                   lineHeight: 1.2,
                 }}
               >
-                Amount: ₱{accumulatedAmount.toFixed(2)}
+                Amount: {formatPeso(accumulatedAmount)}
               </Typography>
               <Button
                 size="small"
@@ -805,7 +806,7 @@ function AdminPcRental({
                   variant={timeDialogAmount === String(minutes) ? 'contained' : 'outlined'}
                   onClick={() => handleQuickSelect(minutes)}
                 >
-                  {`${minutes}M = ₱${price}`}
+                  {`${minutes}M = ${formatPeso(price)}`}
                 </Button>
               ))}
             </Box>

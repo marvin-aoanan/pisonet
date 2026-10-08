@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatPeso } from '../utils/currency';
 import {
   Dialog,
   DialogTitle,
@@ -34,7 +35,7 @@ function CoinDialog({ unit, insertedAmount = 0, onClose }) {
         <Box sx={{ textAlign: 'center', mb: 2 }}>
           <CoinIcon sx={{ fontSize: 52, color: 'secondary.main', mb: 1 }} />
           <Typography variant="h6" color="success.main" sx={{ mt: 0.5, fontWeight: 'bold' }}>
-            ₱{insertedAmount.toFixed(2)} inserted
+            {formatPeso(insertedAmount)} inserted
           </Typography>
         </Box>
       </DialogContent>

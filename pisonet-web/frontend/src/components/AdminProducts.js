@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import CustomGridToolbar from './CustomGridToolbar';
+import { formatPeso } from '../utils/currency';
 
 const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5001/api`;
 
@@ -472,19 +473,19 @@ function AdminProducts({ adminPassword }) {
       field: 'base_price',
       headerName: 'Base',
       width: 110,
-      renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}`,
+      renderCell: (params) => formatPeso(params.value),
     },
     {
       field: 'markup_price',
       headerName: 'Markup',
       width: 110,
-      renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}`,
+      renderCell: (params) => formatPeso(params.value),
     },
     {
       field: 'final_price',
       headerName: 'Final',
       width: 110,
-      renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}`,
+      renderCell: (params) => formatPeso(params.value),
     },
     {
       field: 'is_active',
@@ -545,7 +546,7 @@ function AdminProducts({ adminPassword }) {
     { field: 'quantity_delta', headerName: 'Delta', width: 100 },
     { field: 'quantity_before', headerName: 'Before', width: 100 },
     { field: 'quantity_after', headerName: 'After', width: 100 },
-    { field: 'unit_cost', headerName: 'Unit Cost', width: 110, renderCell: (params) => (params.value == null ? '-' : `P${Number(params.value || 0).toFixed(2)}`) },
+    { field: 'unit_cost', headerName: 'Unit Cost', width: 110, renderCell: (params) => (params.value == null ? '-' : formatPeso(params.value)) },
     { field: 'notes', headerName: 'Notes', minWidth: 220, flex: 1 },
     { field: 'created_by', headerName: 'By', width: 120 },
   ];
@@ -554,12 +555,12 @@ function AdminProducts({ adminPassword }) {
     { field: 'created_at', headerName: 'Date/Time', width: 190, valueGetter: (value) => new Date(value).toLocaleString() },
     { field: 'sku', headerName: 'SKU', width: 140 },
     { field: 'product_name', headerName: 'Product', minWidth: 180, flex: 1 },
-    { field: 'base_price_before', headerName: 'Base Before', width: 120, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
-    { field: 'base_price_after', headerName: 'Base After', width: 120, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
-    { field: 'markup_price_before', headerName: 'Markup Before', width: 130, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
-    { field: 'markup_price_after', headerName: 'Markup After', width: 130, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
-    { field: 'final_price_before', headerName: 'Final Before', width: 120, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
-    { field: 'final_price_after', headerName: 'Final After', width: 120, renderCell: (params) => `P${Number(params.value || 0).toFixed(2)}` },
+    { field: 'base_price_before', headerName: 'Base Before', width: 120, renderCell: (params) => formatPeso(params.value) },
+    { field: 'base_price_after', headerName: 'Base After', width: 120, renderCell: (params) => formatPeso(params.value) },
+    { field: 'markup_price_before', headerName: 'Markup Before', width: 130, renderCell: (params) => formatPeso(params.value) },
+    { field: 'markup_price_after', headerName: 'Markup After', width: 130, renderCell: (params) => formatPeso(params.value) },
+    { field: 'final_price_before', headerName: 'Final Before', width: 120, renderCell: (params) => formatPeso(params.value) },
+    { field: 'final_price_after', headerName: 'Final After', width: 120, renderCell: (params) => formatPeso(params.value) },
     { field: 'change_reason', headerName: 'Reason', minWidth: 220, flex: 1 },
     { field: 'created_by', headerName: 'By', width: 120 },
   ];

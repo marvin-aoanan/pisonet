@@ -592,6 +592,85 @@ function initializeDatabase() {
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('estimated_kwh_rate', '12')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_logout', 'true')`);
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('product_categories', '["Beverages","Snacks"]')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('opex_categories', '["Utilities","Rent","Supplies","Maintenance","Salaries","Internet","Other"]')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('opex_fund_sources', '["Owner Top-up","Loan","Refund","Other"]')`);
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('opex_entry_types', '{"operating":["rent","utilities","internet","salary","maintenance","supplies","inventory_purchase","other_opex"],"capital":["initial_capital","owner_topup","partner_investment","capital_withdrawal"],"financing":["loan_proceeds","loan_payment","interest_payment","other_financing"],"asset":["pc_purchase","printer_purchase","renovation","furniture","equipment_upgrade","other_asset"]}')`);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS opex_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT NOT NULL UNIQUE,
+        direction TEXT NOT NULL CHECK (direction IN ('expense', 'fund_in')),
+        ledger_group TEXT NOT NULL DEFAULT 'operating',
+        entry_type TEXT NOT NULL DEFAULT 'other_opex',
+        category TEXT NOT NULL,
+        source_type TEXT,
+        source_or_payee TEXT,
+        description TEXT,
+        amount REAL NOT NULL CHECK (amount >= 0),
+        entry_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'voided')),
+        void_reason TEXT,
+        voided_at TEXT,
+        voided_by TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run("ALTER TABLE opex_entries ADD COLUMN ledger_group TEXT NOT NULL DEFAULT 'operating'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding opex_entries.ledger_group column:', err);
+      }
+    });
+
+    db.run("ALTER TABLE opex_entries ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'other_opex'", (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding opex_entries.entry_type column:', err);
+      }
+    });
+
+    db.run(`
+      UPDATE opex_entries
+      SET ledger_group = CASE
+        WHEN direction = 'fund_in' THEN 'capital'
+        ELSE 'operating'
+      END
+      WHERE ledger_group IS NULL OR TRIM(ledger_group) = ''
+    `, (err) => {
+      if (err) {
+        console.error('Error backfilling opex_entries.ledger_group column:', err);
+      }
+    });
+
+    db.run(`
+      UPDATE opex_entries
+      SET entry_type = CASE
+        WHEN direction = 'fund_in' THEN 'initial_capital'
+        ELSE 'other_opex'
+      END
+      WHERE entry_type IS NULL OR TRIM(entry_type) = ''
+    `, (err) => {
+      if (err) {
+        console.error('Error backfilling opex_entries.entry_type column:', err);
+      }
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS opex_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        field_name TEXT,
+        value_before TEXT,
+        value_after TEXT,
+        reason TEXT,
+        changed_by TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (entry_id) REFERENCES opex_entries(id)
+      )
+    `);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS products (
@@ -689,6 +768,13 @@ function initializeDatabase() {
     db.run('CREATE INDEX IF NOT EXISTS idx_product_inventory_logs_product_created ON product_inventory_logs(product_id, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_price_logs_product_created ON product_price_logs(product_id, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_type_timestamp ON transactions(transaction_type, timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_entry_date ON opex_entries(entry_date)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_direction ON opex_entries(direction)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_ledger_group ON opex_entries(ledger_group)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_entry_type ON opex_entries(entry_type)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_category ON opex_entries(category)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_status ON opex_entries(status)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_opex_logs_entry_created ON opex_logs(entry_id, created_at)');
 
     db.get('SELECT COUNT(*) as count FROM units', [], (err, row) => {
       if (err) {

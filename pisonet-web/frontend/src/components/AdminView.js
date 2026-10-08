@@ -15,7 +15,8 @@ import {
   ReceiptLong as TransactionIcon,
   BarChart as ReportsIcon,
   Paid as CoinsOutIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  AccountBalanceWallet as OpexIcon
 } from '@mui/icons-material';
 
 import AdminDashboard from './AdminDashboard';
@@ -27,6 +28,7 @@ import AdminCoinsOut from './AdminCoinsOut';
 import AdminSettings from './AdminSettings';
 import AdminProducts from './AdminProducts';
 import StoreView from './StoreView';
+import AdminOpex from './AdminOpex';
 
 const STORE_SUBTAB_STORAGE_KEY = 'admin.storeSubtab';
 
@@ -101,6 +103,7 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           <Tab icon={<PrintIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Print Services" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<TransactionIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Transactions" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<ReportsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Reports" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<OpexIcon />} iconPosition={isMobile ? 'top' : 'start'} label="OPEX" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<CoinsOutIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Coins Out" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<SettingsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Settings" sx={{ minHeight: isMobile ? 44 : 48 }} />
         </Tabs>
@@ -161,9 +164,12 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
         <AdminReports adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={6} isMobile={isMobile}>
-        <AdminCoinsOut adminPassword={adminPassword} />
+        <AdminOpex adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={7} isMobile={isMobile}>
+        <AdminCoinsOut adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={8} isMobile={isMobile}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

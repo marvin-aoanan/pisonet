@@ -44,6 +44,17 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [printServicePrices, setPrintServicePrices] = useState({});
   const [savingPrintServices, setSavingPrintServices] = useState(false);
+  const [opexMetadata, setOpexMetadata] = useState({
+    categories: [],
+    fund_sources: [],
+    entry_type_options: {
+      operating: [],
+      capital: [],
+      financing: [],
+      asset: [],
+    },
+  });
+  const [savingOpexMetadata, setSavingOpexMetadata] = useState(false);
 
   const printServiceLabels = {
     document_short_bw: 'Document Short (A4/Letter) - B&W',
@@ -63,6 +74,13 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     width: isMobile ? '100%' : 'auto'
   };
 
+  const listToText = (list) => (Array.isArray(list) ? list.join(', ') : '');
+
+  const textToList = (value) => String(value || '')
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
   useEffect(() => {
     fetchSettings();
   }, [adminPassword]);
@@ -75,18 +93,31 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     }
 
     try {
-      const [settingsResponse, unitsResponse, pricesResponse] = await Promise.all([
+      const [settingsResponse, unitsResponse, pricesResponse, opexResponse] = await Promise.all([
         axios.get(`${API_URL}/settings`, {
           headers: { 'x-admin-password': adminPassword }
         }),
         axios.get(`${API_URL}/units`),
         axios.get(`${API_URL}/settings/admin/print-services`, {
           headers: { 'x-admin-password': adminPassword }
+        }),
+        axios.get(`${API_URL}/opex/metadata`, {
+          headers: { 'x-admin-password': adminPassword }
         })
       ]);
       setSettings(settingsResponse.data);
       setUnits(unitsResponse.data || []);
       setPrintServicePrices(pricesResponse.data || {});
+      setOpexMetadata(opexResponse.data?.data || {
+        categories: [],
+        fund_sources: [],
+        entry_type_options: {
+          operating: [],
+          capital: [],
+          financing: [],
+          asset: [],
+        },
+      });
     } catch (err) {
       console.error('Error fetching settings:', err);
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -222,6 +253,50 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
     }
   };
 
+  const handleOpexMetadataChange = (field, value) => {
+    setOpexMetadata((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleOpexEntryTypesChange = (group, value) => {
+    setOpexMetadata((prev) => ({
+      ...prev,
+      entry_type_options: {
+        ...(prev.entry_type_options || {}),
+        [group]: value,
+      },
+    }));
+  };
+
+  const handleSaveOpexMetadata = async () => {
+    setSavingOpexMetadata(true);
+    try {
+      await axios.put(
+        `${API_URL}/opex/metadata`,
+        {
+          categories: textToList(opexMetadata.categories),
+          fund_sources: textToList(opexMetadata.fund_sources),
+          entry_type_options: {
+            operating: textToList(opexMetadata.entry_type_options?.operating),
+            capital: textToList(opexMetadata.entry_type_options?.capital),
+            financing: textToList(opexMetadata.entry_type_options?.financing),
+            asset: textToList(opexMetadata.entry_type_options?.asset),
+          },
+        },
+        { headers: { 'x-admin-password': adminPassword } }
+      );
+      setMessage({ type: 'success', text: 'OPEX metadata saved successfully!' });
+    } catch (err) {
+      const errorText = err?.response?.data?.error?.message || 'Failed to save OPEX metadata';
+      console.error('Error saving OPEX metadata:', err);
+      setMessage({ type: 'error', text: errorText });
+    } finally {
+      setSavingOpexMetadata(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -257,6 +332,7 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
           <Tab label="Admin Password" />
           <Tab label="Unit Network Config" />
           <Tab label="Print Services Pricing" />
+          <Tab label="OPEX Settings" />
         </Tabs>
 
         {activeTab === 0 && (
@@ -589,6 +665,100 @@ function AdminSettings({ adminPassword, onAdminPasswordChanged }) {
                 sx={saveButtonSx}
               >
                 {savingPrintServices ? 'Saving...' : 'Save Prices'}
+              </Button>
+            </Box>
+          </Box>
+        )}
+
+        {activeTab === 4 && (
+          <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                OPEX Categories
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                value={listToText(opexMetadata.categories)}
+                onChange={(e) => handleOpexMetadataChange('categories', textToList(e.target.value))}
+                helperText="Comma-separated list. Example: Utilities, Rent, Supplies"
+              />
+            </Box>
+
+            <Divider />
+
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                OPEX Fund Sources
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={3}
+                value={listToText(opexMetadata.fund_sources)}
+                onChange={(e) => handleOpexMetadataChange('fund_sources', textToList(e.target.value))}
+                helperText="Comma-separated list. Example: Owner Top-up, Loan, Refund"
+              />
+            </Box>
+
+            <Divider />
+
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                OPEX Entry Types
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 2 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  label="Operating"
+                  value={listToText(opexMetadata.entry_type_options?.operating)}
+                  onChange={(e) => handleOpexEntryTypesChange('operating', textToList(e.target.value))}
+                  helperText="rent, utilities, internet, salary, maintenance..."
+                />
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  label="Capital"
+                  value={listToText(opexMetadata.entry_type_options?.capital)}
+                  onChange={(e) => handleOpexEntryTypesChange('capital', textToList(e.target.value))}
+                  helperText="initial_capital, owner_topup, partner_investment..."
+                />
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  label="Financing"
+                  value={listToText(opexMetadata.entry_type_options?.financing)}
+                  onChange={(e) => handleOpexEntryTypesChange('financing', textToList(e.target.value))}
+                  helperText="loan_proceeds, loan_payment, interest_payment..."
+                />
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  label="Asset"
+                  value={listToText(opexMetadata.entry_type_options?.asset)}
+                  onChange={(e) => handleOpexEntryTypesChange('asset', textToList(e.target.value))}
+                  helperText="pc_purchase, printer_purchase, renovation..."
+                />
+              </Box>
+            </Box>
+
+            <Divider />
+
+            <Box sx={{ display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+              <Button
+                variant="contained"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveOpexMetadata}
+                disabled={savingOpexMetadata}
+                sx={saveButtonSx}
+              >
+                {savingOpexMetadata ? 'Saving...' : 'Save OPEX Settings'}
               </Button>
             </Box>
           </Box>

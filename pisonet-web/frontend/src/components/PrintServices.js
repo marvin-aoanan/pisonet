@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { formatPeso } from '../utils/currency';
 import {
   Box,
   Button,
@@ -135,7 +136,7 @@ function PrintServices() {
       const colorLabel = isColor ? 'Color' : 'B&W';
       const typeLabel = hasImage ? 'Photo' : 'Document';
       const paperLabel = hasImage ? (paperType === 'special' ? ', Special Paper' : ', Ordinary Paper') : '';
-      const totalLabel = `${isDeduction ? '-' : ''}₱${totalPrice.toFixed(2)}`;
+      const totalLabel = `${isDeduction ? '-' : ''}${formatPeso(totalPrice)}`;
       setMessage({
         type: 'success',
         text: `${isDeduction ? 'Deduction:' : 'Recorded:'} ${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ${totalLabel}`,
@@ -354,13 +355,13 @@ function PrintServices() {
           {/* Price Calculation */}
           <Box sx={{ mt: 3, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1, border: '1px solid #90caf9' }}>
             <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#000000' }}>
-              Price per page: ₱{getPricePerPage().toFixed(2)}
+              Price per page: {formatPeso(getPricePerPage())}
             </Typography>
             <Typography variant="body2" sx={{ mb: 1, color: '#000000' }}>
               Pages: {pageCount}
             </Typography>
             <Typography variant="h6" color="primary" sx={{ fontWeight: 600, borderTop: '1px solid #90caf9', pt: 1 }}>
-              {isDeduction ? 'Deduction' : 'Total'}: {isDeduction ? '-' : ''}₱{getTotalPrice().toFixed(2)}
+              {isDeduction ? 'Deduction' : 'Total'}: {isDeduction ? '-' : ''}{formatPeso(getTotalPrice())}
             </Typography>
           </Box>
 

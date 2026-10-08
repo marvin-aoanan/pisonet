@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
+import { formatPeso } from '../utils/currency';
 import {
   Alert,
   Box,
@@ -216,7 +217,7 @@ function CategoryTicker({ categoryName, categoryProducts, addToCart, loading, la
                   </Stack>
                   <Typography variant="caption" color="text.secondary">SKU: {product.sku}</Typography>
                   <Typography variant="body2" color="text.secondary">{product.description || 'No description'}</Typography>
-                  <Typography variant="h6">P{Number(product.final_price || 0).toFixed(2)}</Typography>
+                  <Typography variant="h6">{formatPeso(Number(product.final_price || 0))}</Typography>
                   <Box
                     component={motion.div}
                     key={`${product.id}-${lastAddedProductId === product.id ? cartPulse : 0}`}
@@ -639,7 +640,7 @@ function StoreView({ adminPassword, onSaleRecorded }) {
 
                 {cartCollapsed ? (
                   <Typography variant="caption" color="text.secondary">
-                    {cartItemCount} item(s) | Subtotal: P{displaySubtotal.toFixed(2)}
+                    {cartItemCount} item(s) | Subtotal: {formatPeso(displaySubtotal)}
                   </Typography>
                 ) : (
                   <>
@@ -667,14 +668,14 @@ function StoreView({ adminPassword, onSaleRecorded }) {
                                   <AddIcon fontSize="small" />
                                 </IconButton>
                               </Stack>
-                              <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
+                              <Typography variant="body2">{formatPeso(entry.unit_final_price * entry.quantity)}</Typography>
                             </Stack>
                           </Box>
                         ))}
                       </Stack>
                     )}
 
-                    <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{displaySubtotal.toFixed(2)}</Typography>
+                    <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: {formatPeso(displaySubtotal)}</Typography>
 
                     <Stack spacing={1.5}>
                       <RadioGroup row value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
@@ -803,7 +804,7 @@ function StoreView({ adminPassword, onSaleRecorded }) {
 
                   {cartCollapsed ? (
                     <Typography variant="caption" color="text.secondary">
-                      {cartItemCount} item(s) | Subtotal: P{displaySubtotal.toFixed(2)}
+                      {cartItemCount} item(s) | Subtotal: {formatPeso(displaySubtotal)}
                     </Typography>
                   ) : (
                     <>
@@ -831,14 +832,14 @@ function StoreView({ adminPassword, onSaleRecorded }) {
                                     <AddIcon fontSize="small" />
                                   </IconButton>
                                 </Stack>
-                                <Typography variant="body2">P{(entry.unit_final_price * entry.quantity).toFixed(2)}</Typography>
+                                <Typography variant="body2">{formatPeso(entry.unit_final_price * entry.quantity)}</Typography>
                               </Stack>
                             </Box>
                           ))}
                         </Stack>
                       )}
 
-                      <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: P{displaySubtotal.toFixed(2)}</Typography>
+                      <Typography variant="subtitle1" sx={{ mb: 2 }}>Subtotal: {formatPeso(displaySubtotal)}</Typography>
 
                       <Stack spacing={1.5}>
                         <RadioGroup row value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
