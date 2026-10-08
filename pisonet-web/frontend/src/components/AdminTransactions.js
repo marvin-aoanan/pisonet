@@ -312,6 +312,12 @@ function AdminTransactions({ adminPassword }) {
         rows={rows}
         columns={orderedColumns}
         initialState={{
+          columns: {
+            columnVisibilityModel: {
+              id: false,
+              sold_by: false,
+            },
+          },
           pagination: {
             paginationModel: { page: 0, pageSize: 25 },
           },
@@ -320,7 +326,7 @@ function AdminTransactions({ adminPassword }) {
           },
         }}
         pageSizeOptions={[10, 25, 50, 100]}
-        checkboxSelection
+        checkboxSelection={false}
         disableRowSelectionOnClick
         loading={loading}
         slots={{

@@ -855,6 +855,26 @@ function initializeDatabase() {
       )
     `);
 
+    db.run(`
+      CREATE TABLE IF NOT EXISTS pc_rental_payment_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT NOT NULL UNIQUE,
+        unit_id INTEGER NOT NULL,
+        minutes INTEGER NOT NULL CHECK (minutes > 0),
+        amount REAL NOT NULL CHECK (amount >= 0),
+        payment_method TEXT NOT NULL,
+        payment_reference TEXT,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        processed_by TEXT,
+        processed_at TEXT,
+        processing_notes TEXT,
+        FOREIGN KEY (unit_id) REFERENCES units(id)
+      )
+    `);
+
     db.run('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
     db.run('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_sales_sold_at ON product_sales(sold_at)');
@@ -864,6 +884,7 @@ function initializeDatabase() {
     db.run('CREATE INDEX IF NOT EXISTS idx_product_price_logs_product_created ON product_price_logs(product_id, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_type_timestamp ON transactions(transaction_type, timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_payment ON transactions(payment_method, payment_status, timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_pc_rental_payment_requests_status_created ON pc_rental_payment_requests(status, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_entry_date ON opex_entries(entry_date)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_direction ON opex_entries(direction)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_ledger_group ON opex_entries(ledger_group)');

@@ -421,9 +421,11 @@ function App() {
   };
 
   // Handle timer adjustment (admin feature)
-  const handleAddTime = async (unitIdOrIds, minutes, description = '') => {
+  const handleAddTime = async (unitIdOrIds, minutes, description = '', payment = {}) => {
     const unitIds = Array.isArray(unitIdOrIds) ? unitIdOrIds : [unitIdOrIds];
     const normalizedDescription = String(description || '').trim();
+    const paymentMethod = String(payment?.payment_method || 'cash').trim().toLowerCase();
+    const paymentReference = payment?.payment_reference == null ? null : String(payment.payment_reference).trim() || null;
 
     if (!unitIds.length) {
       return;
@@ -433,7 +435,12 @@ function App() {
       if (unitIds.length === 1) {
         await axios.post(
           `${API_URL}/units/${unitIds[0]}/adjust-time`,
-          { minutes, description: normalizedDescription || null },
+          {
+            minutes,
+            description: normalizedDescription || null,
+            payment_method: paymentMethod,
+            payment_reference: paymentReference,
+          },
           {
             headers: {
               'x-admin-password': adminPassword
@@ -443,7 +450,13 @@ function App() {
       } else {
         await axios.post(
           `${API_URL}/units/adjust-time/bulk`,
-          { unit_ids: unitIds, minutes, description: normalizedDescription || null },
+          {
+            unit_ids: unitIds,
+            minutes,
+            description: normalizedDescription || null,
+            payment_method: paymentMethod,
+            payment_reference: paymentReference,
+          },
           {
             headers: {
               'x-admin-password': adminPassword
@@ -452,11 +465,17 @@ function App() {
         );
       }
 
-      const direction = minutes > 0 ? 'Added' : 'Removed';
+      const isGcashPendingRequest = minutes > 0 && paymentMethod === 'gcash';
+      const direction = isGcashPendingRequest ? 'Requested' : (minutes > 0 ? 'Added' : 'Removed');
+      const paymentSuffix = minutes > 0
+        ? paymentMethod === 'gcash'
+          ? ' (GCash pending approval)'
+          : ' (Cash)'
+        : '';
       if (unitIds.length === 1) {
-        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitIds[0]}`);
+        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} PC ${unitIds[0]}${paymentSuffix}`);
       } else {
-        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} ${unitIds.length} PCs`);
+        setStatusMessage(`⏱️ ${direction} ${Math.abs(minutes)}m ${minutes > 0 ? 'to' : 'from'} ${unitIds.length} PCs${paymentSuffix}`);
       }
       fetchUnits();
     } catch (error) {

@@ -18,10 +18,14 @@ import {
   TextField,
   Checkbox,
   Divider,
+  ToggleButton,
+  ToggleButtonGroup,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
 import {
+  AccountBalanceWallet as GcashIcon,
+  Paid as CashIcon,
   PowerSettingsNew as PowerIcon,
   FlashOn as FlashOnIcon,
   Logout as LogoutIcon,
@@ -123,12 +127,25 @@ function AdminPcRental({
   const [timeDialogUnitIds, setTimeDialogUnitIds] = useState([]);
   const [timeDialogAmount, setTimeDialogAmount] = useState('');
   const [timeDialogDescription, setTimeDialogDescription] = useState('');
+  const [timeDialogPaymentMethod, setTimeDialogPaymentMethod] = useState('cash');
+  const [timeDialogPaymentReference, setTimeDialogPaymentReference] = useState('');
   const [sessionRevenueByUnit, setSessionRevenueByUnit] = useState({});
   const [selectedUnitIds, setSelectedUnitIds] = useState([]);
   const [flatRateSettings, setFlatRateSettings] = useState(getFlatRateSettings());
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const paymentToggleSx = {
+    justifyContent: 'center',
+    '&.Mui-selected': {
+      color: '#ffffff',
+      backgroundColor: 'success.main',
+      borderColor: 'success.dark',
+    },
+    '&.Mui-selected:hover': {
+      backgroundColor: 'success.dark',
+    },
+  };
 
   const handleAction = async (unitId, action, callback) => {
     setLoading(unitId);
@@ -169,6 +186,8 @@ function AdminPcRental({
     setTimeDialogType(type);
     setTimeDialogAmount('');
     setTimeDialogDescription('');
+    setTimeDialogPaymentMethod('cash');
+    setTimeDialogPaymentReference('');
     setTimeDialogOpen(true);
   };
 
@@ -179,6 +198,8 @@ function AdminPcRental({
     setTimeDialogType(null);
     setTimeDialogAmount('');
     setTimeDialogDescription('');
+    setTimeDialogPaymentMethod('cash');
+    setTimeDialogPaymentReference('');
   };
 
   const handleTimeDialogConfirm = async () => {
@@ -190,7 +211,10 @@ function AdminPcRental({
     setLoading(timeDialogUnitIds.length > 1 ? 'bulk-time' : timeDialogUnitIds[0]);
     try {
       const finalAmount = timeDialogType === 'deduct' ? -minutes : minutes;
-      await onAddTime(timeDialogUnitIds, finalAmount, timeDialogDescription);
+      await onAddTime(timeDialogUnitIds, finalAmount, timeDialogDescription, {
+        payment_method: timeDialogType === 'add' ? timeDialogPaymentMethod : 'cash',
+        payment_reference: timeDialogType === 'add' && timeDialogPaymentMethod === 'gcash' ? (timeDialogPaymentReference.trim() || null) : null,
+      });
     } finally {
       setLoading(null);
     }
@@ -796,6 +820,46 @@ function AdminPcRental({
             placeholder="Reason or note"
             sx={{ mt: 2 }}
           />
+          {timeDialogType === 'add' ? (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                Payment Method
+              </Typography>
+              <ToggleButtonGroup
+                fullWidth
+                exclusive
+                value={timeDialogPaymentMethod}
+                onChange={(_, value) => {
+                  if (value) setTimeDialogPaymentMethod(value);
+                }}
+                size="small"
+              >
+                <ToggleButton value="cash" aria-label="Cash" sx={paymentToggleSx}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CashIcon fontSize="small" />
+                    <span>Cash</span>
+                  </Box>
+                </ToggleButton>
+                <ToggleButton value="gcash" aria-label="GCash" sx={paymentToggleSx}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <GcashIcon fontSize="small" />
+                    <span>GCash</span>
+                  </Box>
+                </ToggleButton>
+              </ToggleButtonGroup>
+
+              {timeDialogPaymentMethod === 'gcash' ? (
+                <TextField
+                  fullWidth
+                  label="GCash Reference (optional)"
+                  value={timeDialogPaymentReference}
+                  onChange={(e) => setTimeDialogPaymentReference(e.target.value)}
+                  helperText="Added time will be pending until manual approval."
+                  sx={{ mt: 1.5 }}
+                />
+              ) : null}
+            </Box>
+          ) : null}
           <Box sx={{ mt: 2, mb: 2 }}>
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>Quick Select:</Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>

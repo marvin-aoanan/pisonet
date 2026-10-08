@@ -8,6 +8,32 @@ const { getUnitOnlineState, normalizeIpv4Address } = require('../network-status'
 
 const WOL_BROADCAST_ADDRESS = process.env.WOL_BROADCAST_ADDRESS || '255.255.255.255';
 const WOL_PORT = parseInt(process.env.WOL_PORT || '9', 10);
+const PAYMENT_METHOD_CASH = 'cash';
+const PAYMENT_METHOD_GCASH = 'gcash';
+const PAYMENT_STATUS_PENDING = 'pending';
+const PAYMENT_STATUS_APPROVED = 'approved';
+const PAYMENT_STATUS_REJECTED = 'rejected';
+
+function parseApprover(value) {
+  const normalized = String(value || '').trim();
+  return normalized || 'Admin';
+}
+
+function parsePaymentMethod(value) {
+  const method = String(value || PAYMENT_METHOD_CASH).trim().toLowerCase();
+  if (method !== PAYMENT_METHOD_CASH && method !== PAYMENT_METHOD_GCASH) {
+    return null;
+  }
+  return method;
+}
+
+function buildPcRentalPaymentReference(createdAtIso, id) {
+  const safeDate = new Date(createdAtIso);
+  const year = safeDate.getUTCFullYear();
+  const month = String(safeDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(safeDate.getUTCDate()).padStart(2, '0');
+  return `PCR-${year}${month}${day}-${String(id).padStart(6, '0')}`;
+}
 
 function calculateOpenTimeAmount(elapsedSeconds, pricingSettings) {
   const elapsedMinutes = Math.max(0, Number(elapsedSeconds || 0) / 60);
@@ -144,8 +170,11 @@ router.get('/by-ip/:ip', (req, res) => {
 });
 
 // GET single unit with detailed info
-router.get('/:id', (req, res) => {
-  const unitId = req.params.id;
+router.get('/:id', (req, res, next) => {
+  const unitId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(unitId) || unitId <= 0) {
+    return next();
+  }
   
   db.get(`
     SELECT u.*, 
@@ -288,9 +317,19 @@ router.post('/:id/add-time', (req, res) => {
 });
 
 // POST adjust timer by minutes (admin control, supports negative values)
-function adjustUnitByMinutes(unitId, minutes, description, done) {
+function adjustUnitByMinutes(unitId, minutes, description, options = {}, done) {
+  if (typeof options === 'function') {
+    done = options;
+    options = {};
+  }
+
   const unitIdNumber = parseInt(unitId, 10);
   const deltaSeconds = Math.round(minutes * 60);
+  const paymentMethod = parsePaymentMethod(options.paymentMethod) || PAYMENT_METHOD_CASH;
+  const paymentStatus = String(options.paymentStatus || PAYMENT_STATUS_APPROVED).trim().toLowerCase();
+  const paymentReference = options.paymentReference == null ? null : String(options.paymentReference).trim() || null;
+  const approvedBy = options.approvedBy == null ? null : String(options.approvedBy).trim() || null;
+  const approvedAt = options.approvedAt == null ? null : String(options.approvedAt).trim() || null;
 
   db.get('SELECT * FROM units WHERE id = ?', [unitIdNumber], (err, unit) => {
     if (err) {
@@ -317,8 +356,32 @@ function adjustUnitByMinutes(unitId, minutes, description, done) {
 
         // Log admin time adjustment as a transaction (amount = signed minutes)
         db.run(
-          'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, description) VALUES (?, ?, ?, ?, ?, ?)',
-          [unitIdNumber, minutes, minutes, new Date().toISOString(), minutes > 0 ? 'admin_add' : 'admin_deduct', description || null],
+          `INSERT INTO transactions (
+             unit_id,
+             amount,
+             denomination,
+             timestamp,
+             transaction_type,
+             description,
+             payment_method,
+             payment_status,
+             payment_reference,
+             approved_by,
+             approved_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            unitIdNumber,
+            minutes,
+            minutes,
+            new Date().toISOString(),
+            minutes > 0 ? 'admin_add' : 'admin_deduct',
+            description || null,
+            paymentMethod,
+            paymentStatus,
+            paymentReference,
+            approvedBy,
+            approvedAt,
+          ],
           (txErr) => {
             if (txErr) {
               console.error('Error recording admin adjustment transaction:', txErr);
@@ -351,16 +414,136 @@ function adjustUnitByMinutes(unitId, minutes, description, done) {
   });
 }
 
+function createPcRentalPaymentRequest({ unitId, minutes, amount, paymentReference, description, createdBy }, done) {
+  const createdAt = new Date().toISOString();
+  const pendingReference = `PENDING-PCR-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+  db.run(
+    `INSERT INTO pc_rental_payment_requests (
+       reference_no,
+       unit_id,
+       minutes,
+       amount,
+       payment_method,
+       payment_reference,
+       description,
+       status,
+       created_by,
+       created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      pendingReference,
+      unitId,
+      minutes,
+      amount,
+      PAYMENT_METHOD_GCASH,
+      paymentReference || null,
+      description || null,
+      PAYMENT_STATUS_PENDING,
+      createdBy || null,
+      createdAt,
+    ],
+    function(insertErr) {
+      if (insertErr) {
+        return done(insertErr);
+      }
+
+      const id = Number(this.lastID || 0);
+      const referenceNo = buildPcRentalPaymentReference(createdAt, id);
+
+      db.run(
+        'UPDATE pc_rental_payment_requests SET reference_no = ? WHERE id = ?',
+        [referenceNo, id],
+        (updateErr) => {
+          if (updateErr) {
+            return done(updateErr);
+          }
+
+          return done(null, {
+            id,
+            reference_no: referenceNo,
+            unit_id: unitId,
+            minutes,
+            amount,
+            payment_method: PAYMENT_METHOD_GCASH,
+            payment_reference: paymentReference || null,
+            status: PAYMENT_STATUS_PENDING,
+            created_at: createdAt,
+          });
+        }
+      );
+    }
+  );
+}
+
 router.post('/:id/adjust-time', requireAdminAuth, (req, res) => {
   const unitId = req.params.id;
   const minutes = Number(req.body?.minutes);
   const description = String(req.body?.description || '').trim();
+  const paymentMethod = parsePaymentMethod(req.body?.payment_method);
+  const paymentReference = req.body?.payment_reference == null ? null : String(req.body.payment_reference).trim();
+  const actor = parseApprover(req.body?.approved_by || req.body?.created_by || req.body?.admin_name);
 
   if (!Number.isFinite(minutes) || minutes === 0) {
     return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
   }
 
-  adjustUnitByMinutes(unitId, minutes, description, (adjustErr, result) => {
+  if (!paymentMethod) {
+    return res.status(400).json({ error: 'payment_method must be either cash or gcash' });
+  }
+
+  if (paymentReference != null && paymentReference.length > 120) {
+    return res.status(400).json({ error: 'payment_reference max length is 120' });
+  }
+
+  if (minutes > 0 && paymentMethod === PAYMENT_METHOD_GCASH) {
+    return loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+      if (pricingErr) {
+        return res.status(500).json({ error: pricingErr.message });
+      }
+
+      db.get('SELECT id, name FROM units WHERE id = ?', [unitId], (unitErr, unit) => {
+        if (unitErr) {
+          return res.status(500).json({ error: unitErr.message });
+        }
+
+        if (!unit) {
+          return res.status(404).json({ error: 'Unit not found' });
+        }
+
+        const amount = calculateFlatRateAmountFromMinutes(Math.abs(minutes), pricingSettings, { minimumCharge: false });
+        createPcRentalPaymentRequest(
+          {
+            unitId: Number(unit.id),
+            minutes: Math.abs(Math.round(minutes)),
+            amount,
+            paymentReference,
+            description,
+            createdBy: actor,
+          },
+          (requestErr, requestRow) => {
+            if (requestErr) {
+              return res.status(500).json({ error: requestErr.message });
+            }
+
+            return res.status(202).json({
+              message: 'GCash payment request created and pending manual approval',
+              payment_status: PAYMENT_STATUS_PENDING,
+              data: requestRow,
+            });
+          }
+        );
+      });
+    });
+  }
+
+  adjustUnitByMinutes(unitId, minutes, description, {
+    paymentMethod,
+    paymentStatus: PAYMENT_STATUS_APPROVED,
+    paymentReference,
+    approvedBy: actor,
+    approvedAt: new Date().toISOString(),
+  }, (adjustErr, result) => {
     if (adjustErr) {
       if (adjustErr.status) {
         return res.status(adjustErr.status).json({ error: adjustErr.message });
@@ -379,9 +562,20 @@ router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
   const minutes = Number(req.body?.minutes);
   const description = String(req.body?.description || '').trim();
   const unitIdsRaw = Array.isArray(req.body?.unit_ids) ? req.body.unit_ids : [];
+  const paymentMethod = parsePaymentMethod(req.body?.payment_method);
+  const paymentReference = req.body?.payment_reference == null ? null : String(req.body.payment_reference).trim();
+  const actor = parseApprover(req.body?.approved_by || req.body?.created_by || req.body?.admin_name);
 
   if (!Number.isFinite(minutes) || minutes === 0) {
     return res.status(400).json({ error: 'Invalid minutes. Provide a non-zero numeric value.' });
+  }
+
+  if (!paymentMethod) {
+    return res.status(400).json({ error: 'payment_method must be either cash or gcash' });
+  }
+
+  if (paymentReference != null && paymentReference.length > 120) {
+    return res.status(400).json({ error: 'payment_reference max length is 120' });
   }
 
   const unitIds = [...new Set(unitIdsRaw.map((id) => parseInt(id, 10)).filter((id) => Number.isInteger(id) && id > 0))];
@@ -391,6 +585,70 @@ router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
 
   const results = [];
   const failures = [];
+
+  if (minutes > 0 && paymentMethod === PAYMENT_METHOD_GCASH) {
+    return loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+      if (pricingErr) {
+        return res.status(500).json({ error: pricingErr.message });
+      }
+
+      const pendingResults = [];
+      const pendingFailures = [];
+      const roundedMinutes = Math.abs(Math.round(minutes));
+      const amount = calculateFlatRateAmountFromMinutes(roundedMinutes, pricingSettings, { minimumCharge: false });
+
+      const processPending = (index) => {
+        if (index >= unitIds.length) {
+          const successCount = pendingResults.length;
+          const failureCount = pendingFailures.length;
+          const hasFailure = failureCount > 0;
+
+          return res.status(hasFailure ? 207 : 202).json({
+            message: hasFailure
+              ? 'Bulk GCash payment requests created with partial failures'
+              : 'Bulk GCash payment requests created and pending manual approval',
+            payment_status: PAYMENT_STATUS_PENDING,
+            unit_count: unitIds.length,
+            success_count: successCount,
+            failure_count: failureCount,
+            results: pendingResults,
+            failures: pendingFailures,
+          });
+        }
+
+        const unitId = unitIds[index];
+        db.get('SELECT id FROM units WHERE id = ?', [unitId], (unitErr, unit) => {
+          if (unitErr) {
+            pendingFailures.push({ unit_id: unitId, error: unitErr.message || 'Failed to load unit' });
+            return processPending(index + 1);
+          }
+
+          if (!unit) {
+            pendingFailures.push({ unit_id: unitId, error: 'Unit not found' });
+            return processPending(index + 1);
+          }
+
+          createPcRentalPaymentRequest({
+            unitId,
+            minutes: roundedMinutes,
+            amount,
+            paymentReference,
+            description,
+            createdBy: actor,
+          }, (requestErr, requestRow) => {
+            if (requestErr) {
+              pendingFailures.push({ unit_id: unitId, error: requestErr.message || 'Failed to create payment request' });
+            } else {
+              pendingResults.push(requestRow);
+            }
+            processPending(index + 1);
+          });
+        });
+      };
+
+      processPending(0);
+    });
+  }
 
   const processNext = (index) => {
     if (index >= unitIds.length) {
@@ -410,7 +668,13 @@ router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
     }
 
     const unitId = unitIds[index];
-    adjustUnitByMinutes(unitId, minutes, description, (adjustErr, result) => {
+    adjustUnitByMinutes(unitId, minutes, description, {
+      paymentMethod,
+      paymentStatus: PAYMENT_STATUS_APPROVED,
+      paymentReference,
+      approvedBy: actor,
+      approvedAt: new Date().toISOString(),
+    }, (adjustErr, result) => {
       if (adjustErr) {
         failures.push({
           unit_id: unitId,
@@ -424,6 +688,247 @@ router.post('/adjust-time/bulk', requireAdminAuth, (req, res) => {
   };
 
   processNext(0);
+});
+
+router.get('/payment-requests/pending', requireAdminAuth, (req, res) => {
+  db.all(
+    `SELECT r.id, r.reference_no, r.unit_id, u.name AS unit_name, r.minutes, r.amount, r.payment_method, r.payment_reference, r.description, r.status, r.created_by, r.created_at
+     FROM pc_rental_payment_requests r
+     JOIN units u ON u.id = r.unit_id
+     WHERE r.status = ? AND r.payment_method = ?
+     ORDER BY r.created_at ASC`,
+    [PAYMENT_STATUS_PENDING, PAYMENT_METHOD_GCASH],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const pendingAmount = (rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return res.json({
+        status: 'success',
+        data: rows || [],
+        meta: {
+          count: Number((rows || []).length),
+          pending_amount: Number(pendingAmount.toFixed(2)),
+        },
+      });
+    }
+  );
+});
+
+router.get('/payment-summary', requireAdminAuth, (req, res) => {
+  loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
+    if (pricingErr) {
+      return res.status(500).json({ error: pricingErr.message });
+    }
+
+    db.all(
+      `SELECT transaction_type, amount, payment_method, payment_status, approved_by, approved_at
+       FROM transactions
+       WHERE transaction_type = 'admin_add'
+         AND payment_status = 'approved'
+         AND approved_by IS NOT NULL
+         AND approved_at IS NOT NULL`,
+      [],
+      (txErr, txRows) => {
+        if (txErr) {
+          return res.status(500).json({ error: txErr.message });
+        }
+
+        db.all(
+          `SELECT amount, status
+           FROM pc_rental_payment_requests
+           WHERE payment_method = ?`,
+          [PAYMENT_METHOD_GCASH],
+          (reqErr, requestRows) => {
+            if (reqErr) {
+              return res.status(500).json({ error: reqErr.message });
+            }
+
+            const summary = {
+              cash_approved: 0,
+              gcash_approved: 0,
+              gcash_pending: 0,
+              gcash_rejected: 0,
+            };
+
+            (txRows || []).forEach((row) => {
+              const method = String(row.payment_method || PAYMENT_METHOD_CASH).toLowerCase();
+              const status = String(row.payment_status || PAYMENT_STATUS_APPROVED).toLowerCase();
+              const minutes = Number(row.amount || 0);
+              if (minutes <= 0 || status !== PAYMENT_STATUS_APPROVED) {
+                return;
+              }
+
+              const pesoAmount = calculateFlatRateAmountFromMinutes(minutes, pricingSettings, { minimumCharge: false });
+
+              if (method === PAYMENT_METHOD_CASH) {
+                summary.cash_approved += pesoAmount;
+              }
+              if (method === PAYMENT_METHOD_GCASH) {
+                summary.gcash_approved += pesoAmount;
+              }
+            });
+
+            (requestRows || []).forEach((row) => {
+              const amount = Number(row.amount || 0);
+              const status = String(row.status || '').toLowerCase();
+              if (amount <= 0) {
+                return;
+              }
+
+              if (status === PAYMENT_STATUS_PENDING) {
+                summary.gcash_pending += amount;
+              }
+              if (status === PAYMENT_STATUS_REJECTED) {
+                summary.gcash_rejected += amount;
+              }
+            });
+
+            return res.json({
+              status: 'success',
+              data: {
+                cash_approved: Number(summary.cash_approved.toFixed(2)),
+                gcash_approved: Number(summary.gcash_approved.toFixed(2)),
+                gcash_pending: Number(summary.gcash_pending.toFixed(2)),
+                gcash_rejected: Number(summary.gcash_rejected.toFixed(2)),
+              },
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+router.post('/payment-requests/:id/approve-gcash', requireAdminAuth, (req, res) => {
+  const requestId = parseInt(req.params.id, 10);
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver || req.body?.admin_name);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+  const approvedAt = new Date().toISOString();
+
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: 'Invalid request id' });
+  }
+
+  db.get(
+    `SELECT * FROM pc_rental_payment_requests WHERE id = ?`,
+    [requestId],
+    (fetchErr, requestRow) => {
+      if (fetchErr) {
+        return res.status(500).json({ error: fetchErr.message });
+      }
+
+      if (!requestRow) {
+        return res.status(404).json({ error: 'Payment request not found' });
+      }
+
+      if (String(requestRow.status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+        return res.status(409).json({ error: 'Payment request is no longer pending' });
+      }
+
+      adjustUnitByMinutes(
+        requestRow.unit_id,
+        Number(requestRow.minutes || 0),
+        String(requestRow.description || '').trim(),
+        {
+          paymentMethod: PAYMENT_METHOD_GCASH,
+          paymentStatus: PAYMENT_STATUS_APPROVED,
+          paymentReference: requestRow.payment_reference || null,
+          approvedBy,
+          approvedAt,
+        },
+        (adjustErr, result) => {
+          if (adjustErr) {
+            if (adjustErr.status) {
+              return res.status(adjustErr.status).json({ error: adjustErr.message });
+            }
+            return res.status(500).json({ error: adjustErr.message });
+          }
+
+          db.run(
+            `UPDATE pc_rental_payment_requests
+             SET status = ?, processed_by = ?, processed_at = ?, processing_notes = ?
+             WHERE id = ?`,
+            [PAYMENT_STATUS_APPROVED, approvedBy, approvedAt, approvalNotes || null, requestId],
+            (updateErr) => {
+              if (updateErr) {
+                return res.status(500).json({ error: updateErr.message });
+              }
+
+              return res.json({
+                status: 'success',
+                message: 'PC rental GCash payment approved and time added',
+                data: {
+                  request_id: requestId,
+                  unit_id: requestRow.unit_id,
+                  reference_no: requestRow.reference_no,
+                  payment_status: PAYMENT_STATUS_APPROVED,
+                  approved_by: approvedBy,
+                  approved_at: approvedAt,
+                  adjustment: result,
+                },
+              });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+router.post('/payment-requests/:id/reject-gcash', requireAdminAuth, (req, res) => {
+  const requestId = parseInt(req.params.id, 10);
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver || req.body?.admin_name);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+  const processedAt = new Date().toISOString();
+
+  if (!Number.isInteger(requestId) || requestId <= 0) {
+    return res.status(400).json({ error: 'Invalid request id' });
+  }
+
+  db.get(
+    `SELECT * FROM pc_rental_payment_requests WHERE id = ?`,
+    [requestId],
+    (fetchErr, requestRow) => {
+      if (fetchErr) {
+        return res.status(500).json({ error: fetchErr.message });
+      }
+
+      if (!requestRow) {
+        return res.status(404).json({ error: 'Payment request not found' });
+      }
+
+      if (String(requestRow.status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+        return res.status(409).json({ error: 'Payment request is no longer pending' });
+      }
+
+      db.run(
+        `UPDATE pc_rental_payment_requests
+         SET status = ?, processed_by = ?, processed_at = ?, processing_notes = ?
+         WHERE id = ?`,
+        [PAYMENT_STATUS_REJECTED, approvedBy, processedAt, approvalNotes || null, requestId],
+        (updateErr) => {
+          if (updateErr) {
+            return res.status(500).json({ error: updateErr.message });
+          }
+
+          return res.json({
+            status: 'success',
+            message: 'PC rental GCash payment request rejected',
+            data: {
+              request_id: requestId,
+              unit_id: requestRow.unit_id,
+              reference_no: requestRow.reference_no,
+              payment_status: PAYMENT_STATUS_REJECTED,
+              approved_by: approvedBy,
+              approved_at: processedAt,
+            },
+          });
+        }
+      );
+    }
+  );
 });
 
 // POST pause a regular countdown timer without ending session/open-time (admin only)
