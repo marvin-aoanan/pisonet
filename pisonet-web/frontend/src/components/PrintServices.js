@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { formatPeso } from '../utils/currency';
 import {
+  Alert,
   Box,
   Button,
   Paper,
@@ -20,8 +21,10 @@ import {
   FormControlLabel,
   Radio,
   Grid,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
-import { Print as PrintIcon } from '@mui/icons-material';
+import { AccountBalanceWallet as GcashIcon, Paid as CashIcon, Print as PrintIcon } from '@mui/icons-material';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -53,6 +56,8 @@ function PrintServices() {
   const [pageCount, setPageCount] = useState(1);
   const [printDescription, setPrintDescription] = useState('');
   const [isDeduction, setIsDeduction] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentReference, setPaymentReference] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [recordingLoading, setRecordingLoading] = useState(false);
 
@@ -102,6 +107,8 @@ function PrintServices() {
     setPageCount(1);
     setPrintDescription('');
     setIsDeduction(deduction);
+    setPaymentMethod('cash');
+    setPaymentReference('');
     setMessage({ type: '', text: '' });
     setPrintDialogOpen(true);
   };
@@ -124,22 +131,29 @@ function PrintServices() {
       setRecordingLoading(true);
       const serviceTypeId = getServiceTypeId();
       const totalPrice = getTotalPrice();
+      const resolvedPaymentMethod = String(paymentMethod || 'cash').toLowerCase();
+      const totalLabel = `${isDeduction ? '-' : ''}${formatPeso(totalPrice)}`;
 
       await axios.post(`${API_URL}/transactions/print-service`, {
         service_type: serviceTypeId,
         pages_count: pageCount,
         is_deduction: isDeduction,
         description: String(printDescription || '').trim() || null,
+        payment_method: resolvedPaymentMethod,
+        payment_reference: String(paymentReference || '').trim() || null,
+        sold_by: 'Admin',
       });
 
       const sizeLabel = size === 'short' ? 'A4/Letter' : 'Legal';
       const colorLabel = isColor ? 'Color' : 'B&W';
       const typeLabel = hasImage ? 'Photo' : 'Document';
       const paperLabel = hasImage ? (paperType === 'special' ? ', Special Paper' : ', Ordinary Paper') : '';
-      const totalLabel = `${isDeduction ? '-' : ''}${formatPeso(totalPrice)}`;
+      const paymentLabel = resolvedPaymentMethod === 'gcash' ? 'GCash' : 'Cash';
       setMessage({
         type: 'success',
-        text: `${isDeduction ? 'Deduction:' : 'Recorded:'} ${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ${totalLabel}`,
+        text: resolvedPaymentMethod === 'gcash'
+          ? `${isDeduction ? 'Deduction:' : 'Recorded:'} ${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ${totalLabel}. Pending GCash approval.`
+          : `${isDeduction ? 'Deduction:' : 'Recorded:'} ${typeLabel} (${sizeLabel}, ${paperType === 'special' && hasImage ? 'Special Paper' : colorLabel}${paperLabel && paperType !== 'special' ? paperLabel : ''}) x${pageCount} = ${totalLabel}. Paid via ${paymentLabel}.`,
       });
 
       setTimeout(() => {
@@ -352,6 +366,75 @@ function PrintServices() {
             sx={{ mb: 3 }}
           />
 
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+              Mode of Payment
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              value={paymentMethod}
+              onChange={(_, nextValue) => {
+                if (!nextValue) return;
+                setPaymentMethod(nextValue);
+              }}
+              sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}
+            >
+              <ToggleButton
+                value="cash"
+                sx={{
+                  flex: 1,
+                  minWidth: 140,
+                  py: 1.2,
+                  textTransform: 'none',
+                  borderColor: 'divider',
+                  '&.Mui-selected': {
+                    backgroundColor: 'success.main',
+                    color: '#fff',
+                    borderColor: 'success.main',
+                    '&:hover': {
+                      backgroundColor: 'success.dark',
+                    },
+                  },
+                }}
+              >
+                <CashIcon sx={{ mr: 1, fontSize: 18 }} />
+                Cash
+              </ToggleButton>
+              <ToggleButton
+                value="gcash"
+                sx={{
+                  flex: 1,
+                  minWidth: 140,
+                  py: 1.2,
+                  textTransform: 'none',
+                  borderColor: 'divider',
+                  '&.Mui-selected': {
+                    backgroundColor: 'info.main',
+                    color: '#fff',
+                    borderColor: 'info.main',
+                    '&:hover': {
+                      backgroundColor: 'info.dark',
+                    },
+                  },
+                }}
+              >
+                <GcashIcon sx={{ mr: 1, fontSize: 18 }} />
+                GCash
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {paymentMethod === 'gcash' ? (
+            <TextField
+              fullWidth
+              label="GCash Reference (optional)"
+              value={paymentReference}
+              onChange={(e) => setPaymentReference(e.target.value)}
+              placeholder="Enter GCash reference number"
+              sx={{ mb: 3 }}
+            />
+          ) : null}
+
           {/* Price Calculation */}
           <Box sx={{ mt: 3, p: 2, backgroundColor: '#e3f2fd', borderRadius: 1, border: '1px solid #90caf9' }}>
             <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#000000' }}>
@@ -367,9 +450,7 @@ function PrintServices() {
 
           {message.text && (
             <Box sx={{ mt: 2, p: 1, backgroundColor: message.type === 'error' ? '#ffebee' : '#e8f5e9', borderRadius: 1 }}>
-              <Typography variant="body2" color={message.type === 'error' ? 'error' : 'success.main'}>
-                {message.text}
-              </Typography>
+              <Alert severity={message.type === 'error' ? 'error' : 'success'}>{message.text}</Alert>
             </Box>
           )}
         </DialogContent>

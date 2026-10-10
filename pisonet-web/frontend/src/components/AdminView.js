@@ -12,6 +12,7 @@ import {
   Storefront as StorefrontIcon,
   Inventory2 as InventoryIcon,
   Print as PrintIcon,
+  AccountBalanceWallet as GcashIcon,
   ReceiptLong as TransactionIcon,
   BarChart as ReportsIcon,
   Paid as CoinsOutIcon,
@@ -39,7 +40,7 @@ function getInitialStoreSubtab() {
   }
 
   const parsed = Number.parseInt(window.localStorage.getItem(STORE_SUBTAB_STORAGE_KEY) || '0', 10);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2) {
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1) {
     return 0;
   }
   return parsed;
@@ -101,7 +102,8 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           <Tab icon={<DashboardIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Dashboard" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<ComputerIcon />} iconPosition={isMobile ? 'top' : 'start'} label="PC Rental" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<StorefrontIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Store" sx={{ minHeight: isMobile ? 44 : 48 }} />
-          <Tab icon={<PrintIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Print Services" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<PrintIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Print" sx={{ minHeight: isMobile ? 44 : 48 }} />
+          <Tab icon={<GcashIcon />} iconPosition={isMobile ? 'top' : 'start'} label="GCash" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<TransactionIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Transactions" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<ReportsIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Reports" sx={{ minHeight: isMobile ? 44 : 48 }} />
           <Tab icon={<OpexIcon />} iconPosition={isMobile ? 'top' : 'start'} label="OPEX" sx={{ minHeight: isMobile ? 44 : 48 }} />
@@ -147,29 +149,30 @@ function AdminView({ units, totalRevenue, onControl, onTestWake, onAddTime, onOp
           >
             <Tab label="POS" />
             <Tab icon={<InventoryIcon />} iconPosition={isMobile ? 'top' : 'start'} label="Products" />
-            <Tab label="GCash Approvals" />
           </Tabs>
         </Box>
         {storeTab === 0 ? <StoreView adminPassword={adminPassword} onSaleRecorded={onPosSaleRecorded} /> : null}
         {storeTab === 1 ? <AdminProducts adminPassword={adminPassword} /> : null}
-        {storeTab === 2 ? <AdminGcashApprovals adminPassword={adminPassword} /> : null}
       </TabPanel>
       <TabPanel value={value} index={3} isMobile={isMobile}>
-        <PrintServices />
+        <PrintServices adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={4} isMobile={isMobile}>
-        <AdminTransactions adminPassword={adminPassword} />
+        <AdminGcashApprovals adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={5} isMobile={isMobile}>
-        <AdminReports adminPassword={adminPassword} />
+        <AdminTransactions adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={6} isMobile={isMobile}>
-        <AdminOpex adminPassword={adminPassword} />
+        <AdminReports adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={7} isMobile={isMobile}>
-        <AdminCoinsOut adminPassword={adminPassword} />
+        <AdminOpex adminPassword={adminPassword} />
       </TabPanel>
       <TabPanel value={value} index={8} isMobile={isMobile}>
+        <AdminCoinsOut adminPassword={adminPassword} />
+      </TabPanel>
+      <TabPanel value={value} index={9} isMobile={isMobile}>
         <AdminSettings
           adminPassword={adminPassword}
           onAdminPasswordChanged={onAdminPasswordChanged}

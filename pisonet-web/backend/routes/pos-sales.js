@@ -632,6 +632,92 @@ router.get('/pending-payments', (req, res) => {
   }
 });
 
+router.get('/approved-payments', (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         subtotal,
+         payment_method,
+         payment_status,
+         payment_reference,
+         notes,
+         sold_by,
+         sold_at,
+         approved_by,
+         approved_at,
+         approval_notes
+       FROM product_sales
+       WHERE payment_method = ? AND payment_status = ?
+       ORDER BY approved_at DESC, sold_at ASC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_APPROVED]
+    );
+
+    const approvedTotal = (rows || []).reduce((sum, row) => sum + Number(row.subtotal || 0), 0);
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => toSalePayload(row)),
+      meta: {
+        count: Number((rows || []).length),
+        approved_amount: Number(approvedTotal.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/rejected-payments', (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         subtotal,
+         payment_method,
+         payment_status,
+         payment_reference,
+         notes,
+         sold_by,
+         sold_at,
+         approved_by,
+         approved_at,
+         approval_notes
+       FROM product_sales
+       WHERE payment_method = ? AND payment_status = ?
+       ORDER BY approved_at DESC, sold_at ASC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_REJECTED]
+    );
+
+    const rejectedTotal = (rows || []).reduce((sum, row) => sum + Number(row.subtotal || 0), 0);
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => toSalePayload(row)),
+      meta: {
+        count: Number((rows || []).length),
+        rejected_amount: Number(rejectedTotal.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
 router.get('/payment-summary', (req, res) => {
   try {
     const rows = db.all(
@@ -652,7 +738,7 @@ router.get('/payment-summary', (req, res) => {
       const status = String(row.payment_status || PAYMENT_STATUS_APPROVED).toLowerCase();
       const subtotal = Number(row.subtotal || 0);
 
-      if (method === PAYMENT_METHOD_CASH && status === PAYMENT_STATUS_APPROVED) {
+      if (method === PAYMENT_METHOD_CASH) {
         summary.cash_approved += subtotal;
       }
 

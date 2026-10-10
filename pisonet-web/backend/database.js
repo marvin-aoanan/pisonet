@@ -249,10 +249,19 @@ function migrateSalesTablesForDeductionSupport() {
 }
 
 function getLastInsertId() {
-  const stmt = sqlDb.prepare('SELECT last_insert_rowid() as id');
-  const row = stmt.getAsObject();
-  stmt.free();
-  return row && row.id ? row.id : 0;
+  try {
+    const rows = sqlDb.exec('SELECT last_insert_rowid() AS id;');
+    const firstRow = rows && rows[0] && rows[0].values && rows[0].values[0];
+    if (Array.isArray(firstRow) && firstRow.length > 0 && firstRow[0] !== null && firstRow[0] !== undefined) {
+      return Number(firstRow[0]);
+    }
+
+    const row = db.get('SELECT last_insert_rowid() AS id');
+    return row && row.id !== null && row.id !== undefined ? Number(row.id) : 0;
+  } catch (err) {
+    console.warn('Unable to fetch last_insert_rowid():', err.message || err);
+    return 0;
+  }
 }
 
 function migrateTransactionsUnitIdToNullable() {
@@ -537,6 +546,7 @@ function initializeDatabase() {
         payment_reference TEXT,
         approved_by TEXT,
         approved_at TEXT,
+        approval_notes TEXT,
         FOREIGN KEY (unit_id) REFERENCES units(id),
         FOREIGN KEY (session_id) REFERENCES sessions(id)
       )
@@ -581,6 +591,12 @@ function initializeDatabase() {
     db.run('ALTER TABLE transactions ADD COLUMN approved_at TEXT', (err) => {
       if (err && !String(err.message || err).includes('duplicate column name')) {
         console.error('Error adding transactions.approved_at column:', err);
+      }
+    });
+
+    db.run('ALTER TABLE transactions ADD COLUMN approval_notes TEXT', (err) => {
+      if (err && !String(err.message || err).includes('duplicate column name')) {
+        console.error('Error adding transactions.approval_notes column:', err);
       }
     });
 
@@ -875,6 +891,26 @@ function initializeDatabase() {
       )
     `);
 
+    db.run(`
+      CREATE TABLE IF NOT EXISTS print_service_payment_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT NOT NULL UNIQUE,
+        service_type TEXT NOT NULL,
+        pages_count INTEGER NOT NULL CHECK (pages_count > 0),
+        amount REAL NOT NULL CHECK (amount >= 0),
+        payment_method TEXT NOT NULL,
+        payment_reference TEXT,
+        description TEXT,
+        is_deduction INTEGER NOT NULL DEFAULT 0 CHECK (is_deduction IN (0, 1)),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        created_by TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        processed_by TEXT,
+        processed_at TEXT,
+        processing_notes TEXT
+      )
+    `);
+
     db.run('CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)');
     db.run('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)');
     db.run('CREATE INDEX IF NOT EXISTS idx_product_sales_sold_at ON product_sales(sold_at)');
@@ -885,6 +921,7 @@ function initializeDatabase() {
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_type_timestamp ON transactions(transaction_type, timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_transactions_payment ON transactions(payment_method, payment_status, timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_pc_rental_payment_requests_status_created ON pc_rental_payment_requests(status, created_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_print_service_payment_requests_status_created ON print_service_payment_requests(status, created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_entry_date ON opex_entries(entry_date)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_direction ON opex_entries(direction)');
     db.run('CREATE INDEX IF NOT EXISTS idx_opex_entries_ledger_group ON opex_entries(ledger_group)');

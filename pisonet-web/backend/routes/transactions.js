@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { requireAdminAuth } = require('../admin-auth');
 const { calculateFlatRateAmountFromMinutes, loadFlatRateSettings } = require('../pricing');
 
 // Print service definitions
@@ -16,6 +17,176 @@ const PRINT_SERVICES = {
   print_photo_short_special: { label: 'Photo Short (A4/Letter) - Special Paper', settingKey: 'photo_short_special', defaultPrice: 20 },
   print_photo_long_special: { label: 'Photo Long (Legal) - Special Paper', settingKey: 'photo_long_special', defaultPrice: 30 },
 };
+
+const PAYMENT_METHOD_CASH = 'cash';
+const PAYMENT_METHOD_GCASH = 'gcash';
+const PAYMENT_STATUS_PENDING = 'pending';
+const PAYMENT_STATUS_APPROVED = 'approved';
+const PAYMENT_STATUS_REJECTED = 'rejected';
+
+function parsePaymentMethod(value) {
+  const method = String(value || PAYMENT_METHOD_CASH).trim().toLowerCase();
+  if (method !== PAYMENT_METHOD_CASH && method !== PAYMENT_METHOD_GCASH) {
+    return null;
+  }
+
+  return method;
+}
+
+function parseApprover(value) {
+  const normalized = String(value || '').trim();
+  return normalized || 'Admin';
+}
+
+function buildPrintServiceReferenceNumber(createdAtIso, id) {
+  const safeDate = new Date(createdAtIso);
+  const year = safeDate.getUTCFullYear();
+  const month = String(safeDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(safeDate.getUTCDate()).padStart(2, '0');
+  return `PRN-${year}${month}${day}-${String(id).padStart(6, '0')}`;
+}
+
+function createPrintServicePaymentRequest({ serviceType, pagesCount, amount, paymentReference, description, createdBy, isDeduction }, done) {
+  const createdAt = new Date().toISOString();
+  const pendingReference = `PENDING-PRN-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+  db.run(
+    `INSERT INTO print_service_payment_requests (
+       reference_no,
+       service_type,
+       pages_count,
+       amount,
+       payment_method,
+       payment_reference,
+       description,
+       is_deduction,
+       status,
+       created_by,
+       created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      pendingReference,
+      serviceType,
+      pagesCount,
+      amount,
+      PAYMENT_METHOD_GCASH,
+      paymentReference || null,
+      description || null,
+      isDeduction ? 1 : 0,
+      PAYMENT_STATUS_PENDING,
+      createdBy || null,
+      createdAt,
+    ],
+    function(insertErr) {
+      if (insertErr) {
+        return done(insertErr);
+      }
+
+      const id = Number(this.lastID || 0);
+      const referenceNo = buildPrintServiceReferenceNumber(createdAt, id);
+
+      db.run(
+        'UPDATE print_service_payment_requests SET reference_no = ? WHERE id = ?',
+        [referenceNo, id],
+        (updateErr) => {
+          if (updateErr) {
+            return done(updateErr);
+          }
+
+          return done(null, {
+            id,
+            reference_no: referenceNo,
+            service_type: serviceType,
+            pages_count: pagesCount,
+            subtotal: amount,
+            payment_method: PAYMENT_METHOD_GCASH,
+            payment_reference: paymentReference || null,
+            notes: description || null,
+            sold_by: createdBy || null,
+            sold_at: createdAt,
+            is_deduction: Boolean(isDeduction),
+            status: PAYMENT_STATUS_PENDING,
+          });
+        }
+      );
+    }
+  );
+}
+
+function createApprovedPrintServiceTransaction({ requestRow, approvedBy, approvedAt, approvalNotes }, done) {
+  const serviceType = String(requestRow.service_type || '').trim();
+  const pagesCount = Math.max(1, parseInt(requestRow.pages_count, 10) || 1);
+  const amount = Number(requestRow.amount || 0);
+  const totalAmount = Number(requestRow.is_deduction ? -Math.abs(amount) : amount);
+  const soldBy = String(requestRow.created_by || approvedBy || 'Admin').trim() || 'Admin';
+  const description = String(requestRow.description || '').trim() || null;
+  const paymentReference = requestRow.payment_reference || null;
+  const recordedAt = approvedAt || new Date().toISOString();
+  let insertedTransactionId = null;
+
+  db.run('BEGIN TRANSACTION');
+  db.run(
+    'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description, sold_by, payment_method, payment_status, payment_reference, approved_by, approved_at, approval_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [null, totalAmount, pagesCount, recordedAt, serviceType, null, description, soldBy, PAYMENT_METHOD_GCASH, PAYMENT_STATUS_APPROVED, paymentReference, approvedBy, recordedAt, approvalNotes || null],
+    function(insertErr) {
+      if (insertErr) {
+        db.run('ROLLBACK');
+        return done(insertErr);
+      }
+
+      insertedTransactionId = Number(this.lastID || 0);
+
+      db.run(
+        `UPDATE print_service_payment_requests
+         SET status = ?, processed_by = ?, processed_at = ?, processing_notes = ?
+         WHERE id = ?`,
+        [PAYMENT_STATUS_APPROVED, approvedBy, recordedAt, approvalNotes || null, requestRow.id],
+        function(updateErr) {
+          if (updateErr) {
+            db.run('ROLLBACK');
+            return done(updateErr);
+          }
+
+          db.run('COMMIT', (commitErr) => {
+            if (commitErr) {
+              db.run('ROLLBACK');
+              return done(commitErr);
+            }
+
+            return done(null, {
+              transaction_id: insertedTransactionId,
+              request_id: requestRow.id,
+              reference_no: requestRow.reference_no || buildPrintServiceReferenceNumber(requestRow.created_at, requestRow.id),
+              service_type: serviceType,
+              payment_status: PAYMENT_STATUS_APPROVED,
+              approved_by: approvedBy,
+              approved_at: recordedAt,
+            });
+          });
+        }
+      );
+    }
+  );
+}
+
+function toPrintServicePayload(row) {
+  const referenceNo = buildPrintServiceReferenceNumber(row.timestamp, row.id);
+
+  return {
+    id: row.id,
+    reference_no: referenceNo,
+    subtotal: Number(row.amount || 0),
+    payment_method: row.payment_method,
+    payment_status: row.payment_status || PAYMENT_STATUS_APPROVED,
+    payment_reference: row.payment_reference || null,
+    approved_by: row.approved_by || null,
+    approved_at: row.approved_at || null,
+    approval_notes: row.approval_notes || null,
+    notes: row.description || null,
+    sold_by: row.sold_by || null,
+    sold_at: row.timestamp,
+  };
+}
 
 function loadPrintServicePrices(callback) {
   db.get('SELECT value FROM settings WHERE key = ?', ['print_service_prices'], (err, row) => {
@@ -1021,9 +1192,24 @@ router.post('/print-service', (req, res) => {
   const { service_type, pages_count } = req.body;
   const isDeduction = req.body?.is_deduction === true || req.body?.is_deduction === 'true' || req.body?.is_deduction === 1;
   const description = String(req.body?.description || '').trim();
+  const paymentMethod = parsePaymentMethod(req.body?.payment_method);
+  const paymentReference = req.body?.payment_reference == null ? null : String(req.body.payment_reference).trim();
+  const soldBy = String(req.body?.sold_by || 'Admin').trim() || 'Admin';
 
   if (!service_type || !PRINT_SERVICES[service_type]) {
     return res.status(400).json({ error: 'Invalid print service type' });
+  }
+
+  if (!paymentMethod) {
+    return res.status(400).json({ error: 'payment_method must be either cash or gcash' });
+  }
+
+  if (paymentReference != null && paymentReference.length > 120) {
+    return res.status(400).json({ error: 'payment_reference max length is 120' });
+  }
+
+  if (soldBy.length > 80) {
+    return res.status(400).json({ error: 'sold_by max length is 80' });
   }
 
   const pagesCount = Math.max(1, parseInt(pages_count, 10) || 1);
@@ -1035,19 +1221,63 @@ router.post('/print-service', (req, res) => {
     const pricePerPage = Number(pricesByServiceType?.[service_type] ?? 0);
     const absoluteAmount = pricePerPage * pagesCount;
     const totalAmount = isDeduction ? -absoluteAmount : absoluteAmount;
+    const paymentStatus = paymentMethod === PAYMENT_METHOD_GCASH ? PAYMENT_STATUS_PENDING : PAYMENT_STATUS_APPROVED;
+    const recordedAt = new Date().toISOString();
+
+    if (paymentMethod === PAYMENT_METHOD_GCASH) {
+      return createPrintServicePaymentRequest(
+        {
+          serviceType: service_type,
+          pagesCount,
+          amount: absoluteAmount,
+          paymentReference,
+          description,
+          createdBy: soldBy,
+          isDeduction,
+        },
+        (requestErr, requestRow) => {
+          if (requestErr) {
+            return res.status(500).json({ error: requestErr.message });
+          }
+
+          return res.status(202).json({
+            message: 'Print service GCash payment request created and pending manual approval',
+            transaction_id: null,
+            request_id: requestRow.id,
+            service_type,
+            is_deduction: isDeduction,
+            payment_method: paymentMethod,
+            payment_status: PAYMENT_STATUS_PENDING,
+            payment_reference: paymentReference || null,
+            approved_by: null,
+            approved_at: null,
+            pages_count: pagesCount,
+            price_per_page: pricePerPage,
+            total_amount: totalAmount,
+          });
+        }
+      );
+    }
 
     db.run(
-      'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [null, totalAmount, pagesCount, new Date().toISOString(), service_type, null, description || null],
+      'INSERT INTO transactions (unit_id, amount, denomination, timestamp, transaction_type, session_id, description, sold_by, payment_method, payment_status, payment_reference, approved_by, approved_at, approval_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [null, totalAmount, pagesCount, recordedAt, service_type, null, description || null, soldBy, paymentMethod, paymentStatus, paymentReference || null, paymentStatus === PAYMENT_STATUS_APPROVED ? soldBy : null, paymentStatus === PAYMENT_STATUS_APPROVED ? recordedAt : null, null],
       function(err) {
         if (err) {
           return res.status(500).json({ error: err.message });
         }
         res.json({
-          message: isDeduction ? 'Print service deduction recorded' : 'Print service transaction recorded',
+          message: paymentStatus === PAYMENT_STATUS_PENDING
+            ? 'Print service recorded and pending GCash approval'
+            : (isDeduction ? 'Print service deduction recorded' : 'Print service transaction recorded'),
           transaction_id: this.lastID,
           service_type,
           is_deduction: isDeduction,
+          payment_method: paymentMethod,
+          payment_status: paymentStatus,
+          payment_reference: paymentReference || null,
+          approved_by: paymentStatus === PAYMENT_STATUS_APPROVED ? soldBy : null,
+          approved_at: paymentStatus === PAYMENT_STATUS_APPROVED ? recordedAt : null,
           pages_count: pagesCount,
           price_per_page: pricePerPage,
           total_amount: totalAmount,
@@ -1055,6 +1285,437 @@ router.post('/print-service', (req, res) => {
       }
     );
   });
+});
+
+router.get('/print-service/pending-payments', requireAdminAuth, (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         service_type,
+         pages_count,
+         amount,
+         created_at,
+         description,
+         created_by,
+         payment_method,
+         payment_reference,
+         is_deduction,
+         status,
+         created_by,
+         created_at
+       FROM print_service_payment_requests
+       WHERE payment_method = ? AND status = ?
+       ORDER BY created_at ASC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_PENDING]
+    );
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => ({
+        id: row.id,
+        reference_no: row.reference_no,
+        subtotal: Number(row.amount || 0),
+        payment_method: row.payment_method,
+        payment_status: row.status || PAYMENT_STATUS_PENDING,
+        payment_reference: row.payment_reference || null,
+        approved_by: null,
+        approved_at: null,
+        approval_notes: null,
+        notes: row.description || null,
+        sold_by: row.created_by || null,
+        sold_at: row.created_at,
+        service_type: row.service_type,
+        pages_count: row.pages_count,
+        is_deduction: Boolean(Number(row.is_deduction || 0)),
+        row_key: `print-${row.id}`,
+      })),
+      meta: {
+        count: Number((rows || []).length),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/print-service/approved-payments', requireAdminAuth, (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         service_type,
+         pages_count,
+         amount,
+         created_at,
+         description,
+         created_by,
+         payment_method,
+         payment_reference,
+         is_deduction,
+         status,
+         created_at
+       FROM print_service_payment_requests
+       WHERE payment_method = ? AND status = ?
+       ORDER BY created_at DESC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_APPROVED]
+    );
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => ({
+        id: row.id,
+        reference_no: row.reference_no,
+        subtotal: Number(row.amount || 0),
+        payment_method: row.payment_method,
+        payment_status: row.status || PAYMENT_STATUS_APPROVED,
+        payment_reference: row.payment_reference || null,
+        approved_by: null,
+        approved_at: null,
+        approval_notes: null,
+        notes: row.description || null,
+        sold_by: row.created_by || null,
+        sold_at: row.created_at,
+        service_type: row.service_type,
+        pages_count: row.pages_count,
+        is_deduction: Boolean(Number(row.is_deduction || 0)),
+        row_key: `print-${row.id}`,
+      })),
+      meta: {
+        count: Number((rows || []).length),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/print-service/rejected-payments', requireAdminAuth, (req, res) => {
+  try {
+    const rows = db.all(
+      `SELECT
+         id,
+         reference_no,
+         service_type,
+         pages_count,
+         amount,
+         created_at,
+         description,
+         created_by,
+         payment_method,
+         payment_reference,
+         is_deduction,
+         status,
+         created_at
+       FROM print_service_payment_requests
+       WHERE payment_method = ? AND status = ?
+       ORDER BY created_at DESC`,
+      [PAYMENT_METHOD_GCASH, PAYMENT_STATUS_REJECTED]
+    );
+
+    return res.json({
+      status: 'success',
+      data: (rows || []).map((row) => ({
+        id: row.id,
+        reference_no: row.reference_no,
+        subtotal: Number(row.amount || 0),
+        payment_method: row.payment_method,
+        payment_status: row.status || PAYMENT_STATUS_REJECTED,
+        payment_reference: row.payment_reference || null,
+        approved_by: null,
+        approved_at: null,
+        approval_notes: null,
+        notes: row.description || null,
+        sold_by: row.created_by || null,
+        sold_at: row.created_at,
+        service_type: row.service_type,
+        pages_count: row.pages_count,
+        is_deduction: Boolean(Number(row.is_deduction || 0)),
+        row_key: `print-${row.id}`,
+      })),
+      meta: {
+        count: Number((rows || []).length),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.get('/print-service/payment-summary', requireAdminAuth, (req, res) => {
+  try {
+    const approvedRows = db.all(
+      `SELECT payment_method, payment_status, amount
+       FROM transactions
+       WHERE transaction_type LIKE 'print_%' AND payment_status = ?`,
+      [PAYMENT_STATUS_APPROVED]
+    );
+
+    const requestRows = db.all(
+      `SELECT amount, status
+       FROM print_service_payment_requests
+       WHERE payment_method = ?`,
+      [PAYMENT_METHOD_GCASH]
+    );
+
+    const summary = {
+      cash_approved: 0,
+      gcash_approved: 0,
+      gcash_pending: 0,
+      gcash_rejected: 0,
+    };
+
+    (approvedRows || []).forEach((row) => {
+      const method = String(row.payment_method || PAYMENT_METHOD_CASH).toLowerCase();
+      const status = String(row.payment_status || PAYMENT_STATUS_APPROVED).toLowerCase();
+      const amount = Number(row.amount || 0);
+
+      if (method === PAYMENT_METHOD_CASH) {
+        summary.cash_approved += amount;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_APPROVED) {
+        summary.gcash_approved += amount;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_PENDING) {
+        summary.gcash_pending += amount;
+      }
+
+      if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_REJECTED) {
+        summary.gcash_rejected += amount;
+      }
+    });
+
+    (requestRows || []).forEach((row) => {
+      const amount = Number(row.amount || 0);
+      const status = String(row.status || '').toLowerCase();
+
+      if (amount <= 0) {
+        return;
+      }
+
+      if (status === PAYMENT_STATUS_PENDING) {
+        summary.gcash_pending += amount;
+      }
+
+      if (status === PAYMENT_STATUS_REJECTED) {
+        summary.gcash_rejected += amount;
+      }
+    });
+
+    return res.json({
+      status: 'success',
+      data: {
+        cash_approved: Number(summary.cash_approved.toFixed(2)),
+        gcash_approved: Number(summary.gcash_approved.toFixed(2)),
+        gcash_pending: Number(summary.gcash_pending.toFixed(2)),
+        gcash_rejected: Number(summary.gcash_rejected.toFixed(2)),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.post('/print-service/:id/approve-gcash', requireAdminAuth, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_id',
+        message: 'Invalid transaction id',
+      },
+    });
+  }
+
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+
+  try {
+    const requestRow = db.get(
+      `SELECT *
+       FROM print_service_payment_requests
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!requestRow) {
+      return res.status(404).json({
+        status: 'error',
+        error: {
+          code: 'request_not_found',
+          message: 'Print service payment request not found',
+        },
+      });
+    }
+
+    if (String(requestRow.payment_method || '').toLowerCase() !== PAYMENT_METHOD_GCASH) {
+      return res.status(400).json({
+        status: 'error',
+        error: {
+          code: 'invalid_payment_method',
+          message: 'Only GCash print service payment requests can be approved by this endpoint',
+        },
+      });
+    }
+
+    if (String(requestRow.status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+      return res.status(409).json({
+        status: 'error',
+        error: {
+          code: 'already_processed',
+          message: 'Print service payment request is no longer pending',
+        },
+      });
+    }
+
+    const approvedAt = new Date().toISOString();
+
+    createApprovedPrintServiceTransaction(
+      {
+        requestRow,
+        approvedBy,
+        approvedAt,
+        approvalNotes,
+      },
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        return res.json({
+          status: 'success',
+          message: 'Print service GCash payment approved',
+          data: result,
+        });
+      }
+    );
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
+});
+
+router.post('/print-service/:id/reject-gcash', requireAdminAuth, (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({
+      status: 'error',
+      error: {
+        code: 'invalid_id',
+        message: 'Invalid transaction id',
+      },
+    });
+  }
+
+  const approvedBy = parseApprover(req.body?.approved_by || req.body?.approver);
+  const approvalNotes = req.body?.approval_notes == null ? null : String(req.body.approval_notes).trim();
+
+  try {
+    const requestRow = db.get(
+      `SELECT id, payment_method, status, created_at
+       FROM print_service_payment_requests
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!requestRow) {
+      return res.status(404).json({
+        status: 'error',
+        error: {
+          code: 'request_not_found',
+          message: 'Print service payment request not found',
+        },
+      });
+    }
+
+    if (String(requestRow.payment_method || '').toLowerCase() !== PAYMENT_METHOD_GCASH) {
+      return res.status(400).json({
+        status: 'error',
+        error: {
+          code: 'invalid_payment_method',
+          message: 'Only GCash print service payment requests can be rejected by this endpoint',
+        },
+      });
+    }
+
+    if (String(requestRow.status || '').toLowerCase() !== PAYMENT_STATUS_PENDING) {
+      return res.status(409).json({
+        status: 'error',
+        error: {
+          code: 'already_processed',
+          message: 'Print service payment request is no longer pending',
+        },
+      });
+    }
+
+    const processedAt = new Date().toISOString();
+
+    db.run(
+      `UPDATE print_service_payment_requests
+       SET status = ?, processed_by = ?, processed_at = ?, processing_notes = ?
+       WHERE id = ?`,
+      [PAYMENT_STATUS_REJECTED, approvedBy, processedAt, approvalNotes || null, id],
+      function(err) {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        return res.json({
+          status: 'success',
+          message: 'Print service GCash payment rejected',
+          data: {
+            request_id: id,
+            reference_no: buildPrintServiceReferenceNumber(requestRow.created_at, id),
+            payment_status: PAYMENT_STATUS_REJECTED,
+            approved_by: approvedBy,
+            approved_at: processedAt,
+          },
+        });
+      }
+    );
+  } catch (err) {
+    return res.status(500).json({
+      status: 'error',
+      error: {
+        code: 'internal_error',
+        message: err.message,
+      },
+    });
+  }
 });
 
 module.exports = router;

@@ -716,6 +716,58 @@ router.get('/payment-requests/pending', requireAdminAuth, (req, res) => {
   );
 });
 
+router.get('/payment-requests/approved', requireAdminAuth, (req, res) => {
+  db.all(
+    `SELECT r.id, r.reference_no, r.unit_id, u.name AS unit_name, r.minutes, r.amount, r.payment_method, r.payment_reference, r.description, r.status, r.created_by, r.created_at, r.approved_at
+     FROM pc_rental_payment_requests r
+     JOIN units u ON u.id = r.unit_id
+     WHERE r.status = ? AND r.payment_method = ?
+     ORDER BY r.approved_at DESC, r.created_at ASC`,
+    [PAYMENT_STATUS_APPROVED, PAYMENT_METHOD_GCASH],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const approvedAmount = (rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return res.json({
+        status: 'success',
+        data: rows || [],
+        meta: {
+          count: Number((rows || []).length),
+          approved_amount: Number(approvedAmount.toFixed(2)),
+        },
+      });
+    }
+  );
+});
+
+router.get('/payment-requests/rejected', requireAdminAuth, (req, res) => {
+  db.all(
+    `SELECT r.id, r.reference_no, r.unit_id, u.name AS unit_name, r.minutes, r.amount, r.payment_method, r.payment_reference, r.description, r.status, r.created_by, r.created_at, r.approved_at
+     FROM pc_rental_payment_requests r
+     JOIN units u ON u.id = r.unit_id
+     WHERE r.status = ? AND r.payment_method = ?
+     ORDER BY r.approved_at DESC, r.created_at ASC`,
+    [PAYMENT_STATUS_REJECTED, PAYMENT_METHOD_GCASH],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const rejectedAmount = (rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return res.json({
+        status: 'success',
+        data: rows || [],
+        meta: {
+          count: Number((rows || []).length),
+          rejected_amount: Number(rejectedAmount.toFixed(2)),
+        },
+      });
+    }
+  );
+});
+
 router.get('/payment-summary', requireAdminAuth, (req, res) => {
   loadFlatRateSettings(db, (pricingErr, pricingSettings) => {
     if (pricingErr) {
@@ -756,7 +808,7 @@ router.get('/payment-summary', requireAdminAuth, (req, res) => {
               const method = String(row.payment_method || PAYMENT_METHOD_CASH).toLowerCase();
               const status = String(row.payment_status || PAYMENT_STATUS_APPROVED).toLowerCase();
               const minutes = Number(row.amount || 0);
-              if (minutes <= 0 || status !== PAYMENT_STATUS_APPROVED) {
+              if (minutes <= 0) {
                 return;
               }
 
@@ -765,7 +817,7 @@ router.get('/payment-summary', requireAdminAuth, (req, res) => {
               if (method === PAYMENT_METHOD_CASH) {
                 summary.cash_approved += pesoAmount;
               }
-              if (method === PAYMENT_METHOD_GCASH) {
+              if (method === PAYMENT_METHOD_GCASH && status === PAYMENT_STATUS_APPROVED) {
                 summary.gcash_approved += pesoAmount;
               }
             });
